@@ -1,0 +1,206 @@
+// Review state: the split result after the user's corrections (spec section 3, step 3).
+// Every edit returns a new state and leaves the old one untouched, which makes undo a
+// matter of keeping the previous states.
+
+import type { Box, IconFlag, Ink, SplitResult } from "./split";
+
+export interface ReviewIcon extends Box {
+  key: number; // stable handle for selection; survives renumbering
+  row: number; // 1-based
+  col: number; // 1-based, left to right
+  anchorX: number;
+  anchorY: number;
+  flags: IconFlag[];
+  extras: Box[]; // nearby marks left out of the box (possible split)
+}
+
+export interface ReviewRow {
+  index: number;
+  title: Box | null;
+  titleText: string;
+  icons: ReviewIcon[];
+}
+
+export interface Review {
+  width: number;
+  height: number;
+  rows: ReviewRow[];
+  nextKey: number;
+}
+
+const MIN_SIZE = 4;
+
+export function fromSplit(r: SplitResult): Review {
+  let key = 1;
+  return {
+    width: r.width,
+    height: r.height,
+    rows: r.rows.map((row) => ({
+      index: row.index,
+      title: row.title,
+      titleText: "",
+      icons: row.icons.map((i) => ({
+        key: key++,
+        row: i.row,
+        col: i.col,
+        x: i.x,
+        y: i.y,
+        w: i.w,
+        h: i.h,
+        anchorX: i.anchorX,
+        anchorY: i.anchorY,
+        flags: [...i.flags],
+        extras: [...i.extras],
+      })),
+    })),
+    nextKey: key,
+  };
+}
+
+export function allIcons(r: Review): ReviewIcon[] {
+  return r.rows.flatMap((row) => row.icons);
+}
+
+export function findIcon(r: Review, key: number): ReviewIcon | undefined {
+  return allIcons(r).find((i) => i.key === key);
+}
+
+export function deleteIcons(r: Review, keys: number[]): Review {
+  const drop = new Set(keys);
+  return withRows(r, (row) => ({ ...row, icons: row.icons.filter((i) => !drop.has(i.key)) }));
+}
+
+// Merge two or more boxes in the same row into one box covering all of them.
+export function mergeIcons(r: Review, ink: Ink, keys: number[]): Review {
+  const icons = keys.map((k) => findIcon(r, k)).filter((i): i is ReviewIcon => !!i);
+  if (icons.length < 2 || new Set(icons.map((i) => i.row)).size !== 1) return r;
+  const box = union(icons);
+  const merged = makeIcon(r.nextKey, icons[0].row, box, ink, icons.flatMap((i) => i.extras).filter((e) => !inside(e, box)));
+  const drop = new Set(keys);
+  return {
+    ...withRows(r, (row) =>
+      row.index === merged.row ? { ...row, icons: [...row.icons.filter((i) => !drop.has(i.key)), merged] } : row,
+    ),
+    nextKey: r.nextKey + 1,
+  };
+}
+
+// Split one box at a vertical line. Each side shrinks to its own ink plus padding;
+// a side with no ink means the line missed the icon, and nothing changes.
+export function splitIcon(r: Review, ink: Ink, key: number, atX: number): Review {
+  const icon = findIcon(r, key);
+  if (!icon || atX <= icon.x || atX >= icon.x + icon.w) return r;
+  const left = ink.inkWithin({ x: icon.x, y: icon.y, w: atX - icon.x, h: icon.h });
+  const right = ink.inkWithin({ x: atX, y: icon.y, w: icon.x + icon.w - atX, h: icon.h });
+  if (!left || !right) return r;
+  const a = makeIcon(r.nextKey, icon.row, clampBox(pad(left, ink.pad), ink), ink, []);
+  const b = makeIcon(r.nextKey + 1, icon.row, clampBox(pad(right, ink.pad), ink), ink, []);
+  return {
+    ...withRows(r, (row) =>
+      row.index === icon.row ? { ...row, icons: [...row.icons.filter((i) => i.key !== key), a, b] } : row,
+    ),
+    nextKey: r.nextKey + 2,
+  };
+}
+
+// Set a box to an exact rectangle (from dragging its edges). The anchor follows the ink.
+export function resizeIcon(r: Review, ink: Ink, key: number, box: Box): Review {
+  const icon = findIcon(r, key);
+  if (!icon) return r;
+  const b = clampBox(normalise(box), ink);
+  const updated: ReviewIcon = { ...icon, ...b, ...anchorFor(ink, b), flags: [], extras: icon.extras.filter((e) => !inside(e, b)) };
+  return replaceIcon(r, updated);
+}
+
+// Grow a box to take in the nearby marks it left out, or dismiss them.
+export function includeExtras(r: Review, ink: Ink, key: number): Review {
+  const icon = findIcon(r, key);
+  if (!icon || !icon.extras.length) return r;
+  return resizeIcon(r, ink, key, union([icon, ...icon.extras]));
+}
+
+export function dismissExtras(r: Review, key: number): Review {
+  const icon = findIcon(r, key);
+  if (!icon) return r;
+  return replaceIcon(r, { ...icon, extras: [], flags: icon.flags.filter((f) => f !== "possible-split") });
+}
+
+export function setTitleText(r: Review, rowIndex: number, text: string): Review {
+  return withRows(r, (row) => (row.index === rowIndex ? { ...row, titleText: text } : row));
+}
+
+// Arrow-key movement: left and right within a row, up and down to the nearest box
+// horizontally in the next row that has any.
+export function neighbour(r: Review, key: number, dir: "left" | "right" | "up" | "down"): number | undefined {
+  const icon = findIcon(r, key);
+  if (!icon) return;
+  const rowIdx = r.rows.findIndex((row) => row.index === icon.row);
+  const row = r.rows[rowIdx];
+  const pos = row.icons.findIndex((i) => i.key === key);
+  if (dir === "left") return row.icons[pos - 1]?.key;
+  if (dir === "right") return row.icons[pos + 1]?.key;
+  const step = dir === "up" ? -1 : 1;
+  const cx = icon.x + icon.w / 2;
+  for (let j = rowIdx + step; j >= 0 && j < r.rows.length; j += step) {
+    const icons = r.rows[j].icons;
+    if (!icons.length) continue;
+    return icons.reduce((best, i) => (Math.abs(i.x + i.w / 2 - cx) < Math.abs(best.x + best.w / 2 - cx) ? i : best)).key;
+  }
+}
+
+function makeIcon(key: number, row: number, box: Box, ink: Ink, extras: Box[]): ReviewIcon {
+  return { key, row, col: 0, ...box, ...anchorFor(ink, box), flags: [], extras };
+}
+
+// Anchor at the bottom centre of the ink inside the box, as fractions of the box.
+function anchorFor(ink: Ink, b: Box): { anchorX: number; anchorY: number } {
+  const i = ink.inkWithin(b);
+  if (!i) return { anchorX: 0.5, anchorY: 1 };
+  return { anchorX: (i.x + i.w / 2 - b.x) / b.w, anchorY: (i.y + i.h - b.y) / b.h };
+}
+
+function replaceIcon(r: Review, icon: ReviewIcon): Review {
+  return withRows(r, (row) => ({ ...row, icons: row.icons.map((i) => (i.key === icon.key ? icon : i)) }));
+}
+
+// Apply a change to every row, then keep each row's icons in left-to-right order
+// with columns numbered from 1.
+function withRows(r: Review, fn: (row: ReviewRow) => ReviewRow): Review {
+  return {
+    ...r,
+    rows: r.rows.map((row) => {
+      const next = fn(row);
+      if (next === row) return row;
+      const icons = [...next.icons].sort((a, b) => a.x - b.x).map((i, n) => (i.col === n + 1 ? i : { ...i, col: n + 1 }));
+      return { ...next, icons };
+    }),
+  };
+}
+
+function union(boxes: Box[]): Box {
+  const x = Math.min(...boxes.map((b) => b.x));
+  const y = Math.min(...boxes.map((b) => b.y));
+  const right = Math.max(...boxes.map((b) => b.x + b.w));
+  const bottom = Math.max(...boxes.map((b) => b.y + b.h));
+  return { x, y, w: right - x, h: bottom - y };
+}
+
+function inside(a: Box, b: Box): boolean {
+  return a.x >= b.x && a.y >= b.y && a.x + a.w <= b.x + b.w && a.y + a.h <= b.y + b.h;
+}
+
+function pad(b: Box, p: number): Box {
+  return { x: b.x - p, y: b.y - p, w: b.w + 2 * p, h: b.h + 2 * p };
+}
+
+function normalise(b: Box): Box {
+  const x = Math.round(Math.min(b.x, b.x + b.w));
+  const y = Math.round(Math.min(b.y, b.y + b.h));
+  return { x, y, w: Math.max(MIN_SIZE, Math.round(Math.abs(b.w))), h: Math.max(MIN_SIZE, Math.round(Math.abs(b.h))) };
+}
+
+function clampBox(b: Box, ink: Ink): Box {
+  const x = Math.max(0, Math.min(b.x, ink.width - MIN_SIZE));
+  const y = Math.max(0, Math.min(b.y, ink.height - MIN_SIZE));
+  return { x, y, w: Math.min(b.w, ink.width - x), h: Math.min(b.h, ink.height - y) };
+}

@@ -338,6 +338,32 @@ function cutWideCell(profile: Int32Array, x0: number, x1: number, typicalW: numb
   return out;
 }
 
+// Ink lookups for the review tools: where the ink sits inside a box, and how much
+// padding a crop gets at this sheet's scale.
+export interface Ink {
+  width: number;
+  height: number;
+  pad: number;
+  inkWithin(b: Box): Box | null;
+}
+
+export function makeInk(img: ImageLike, settings: SplitSettings): Ink {
+  const mask = inkMask(img, settings.threshold);
+  const { width: W, height: H } = img;
+  return {
+    width: W,
+    height: H,
+    pad: Math.max(1, Math.round((settings.padding * W) / REFERENCE_WIDTH)),
+    inkWithin(b) {
+      const x0 = Math.max(0, Math.round(b.x));
+      const y0 = Math.max(0, Math.round(b.y));
+      const x1 = Math.min(W, Math.round(b.x + b.w));
+      const y1 = Math.min(H, Math.round(b.y + b.h));
+      return x1 > x0 && y1 > y0 ? inkBox(mask, W, x0, y0, x1, y1) : null;
+    },
+  };
+}
+
 export function iconId(sheetId: string, icon: { row: number; col: number }): string {
   return `${sheetId}-r${icon.row}-c${icon.col}`;
 }

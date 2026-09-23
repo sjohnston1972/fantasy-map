@@ -1,7 +1,23 @@
-// Import page, milestone 1: drop a sheet, see it split into rows, titles and icons.
-// Everything runs in the browser; nothing is sent to the server yet.
+// Import page: drop a sheet, see it split into rows, titles and icons (milestone 1),
+// then correct the boxes by hand (milestone 2). Everything runs in the browser;
+// nothing is sent to the server yet.
 
-import { DEFAULT_SETTINGS, iconId, split, type Box, type IconBox, type SplitResult, type SplitSettings } from "./split";
+import { DEFAULT_SETTINGS, iconId, makeInk, split, type Box, type Ink, type SplitSettings } from "./split";
+import {
+  allIcons,
+  deleteIcons,
+  dismissExtras,
+  findIcon,
+  fromSplit,
+  includeExtras,
+  mergeIcons,
+  neighbour,
+  resizeIcon,
+  setTitleText,
+  splitIcon,
+  type Review,
+  type ReviewIcon,
+} from "./review";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -23,6 +39,14 @@ interface Sheet {
   image: ImageData;
 }
 
+// One step of history: the boxes and the settings that produced them.
+interface Snapshot {
+  review: Review;
+  settings: SplitSettings;
+}
+
+type Handle = "n" | "s" | "e" | "w" | "ne" | "nw" | "se" | "sw";
+
 const $ = <T extends Element>(sel: string) => document.querySelector<T>(sel)!;
 
 const els = {
@@ -39,12 +63,29 @@ const els = {
   reset: $<HTMLButtonElement>("#reset"),
   detail: $<HTMLElement>("#detail"),
   status: $<HTMLElement>("#status"),
+  merge: $<HTMLButtonElement>("#tool-merge"),
+  split: $<HTMLButtonElement>("#tool-split"),
+  del: $<HTMLButtonElement>("#tool-delete"),
+  undo: $<HTMLButtonElement>("#tool-undo"),
+  redo: $<HTMLButtonElement>("#tool-redo"),
+  hint: $<HTMLElement>("#tool-hint"),
 };
 
 let sheet: Sheet | null = null;
-let result: SplitResult | null = null;
 let settings: SplitSettings = { ...DEFAULT_SETTINGS };
-let selected: string | null = null;
+let review: Review | null = null;
+let splitMs = 0;
+let undoStack: Snapshot[] = [];
+let redoStack: Snapshot[] = [];
+let selected: number[] = [];
+let splitMode = false;
+
+let inkCache: { key: string; ink: Ink } | null = null;
+function ink(): Ink {
+  const key = `${sheet!.id}:${settings.threshold}:${settings.padding}`;
+  if (inkCache?.key !== key) inkCache = { key, ink: makeInk(sheet!.image, settings) };
+  return inkCache.ink;
+}
 
 buildSettingsForm();
 els.settings.addEventListener("submit", (e) => e.preventDefault());
@@ -70,9 +111,19 @@ els.sample.addEventListener("click", async () => {
 });
 els.reset.addEventListener("click", () => {
   settings = { ...DEFAULT_SETTINGS };
-  for (const f of FIELDS) (els.settings.elements.namedItem(f.key) as HTMLInputElement).value = String(settings[f.key]);
-  rerun();
+  syncSettingsForm();
+  resplit();
 });
+
+els.merge.addEventListener("click", doMerge);
+els.split.addEventListener("click", () => setSplitMode(!splitMode));
+els.del.addEventListener("click", doDelete);
+els.undo.addEventListener("click", undo);
+els.redo.addEventListener("click", redo);
+document.addEventListener("keydown", onKey);
+els.overlay.addEventListener("pointerdown", onPointerDown);
+els.overlay.addEventListener("pointermove", onSplitHover);
+els.overlay.addEventListener("pointerleave", () => els.overlay.querySelector(".split-guide")?.remove());
 
 async function load(file: File) {
   if (!file.type.startsWith("image/")) return setStatus(`${file.name} is not an image.`);
@@ -92,8 +143,11 @@ async function load(file: File) {
   els.img.src = sheet.url;
   els.overlay.setAttribute("viewBox", `0 0 ${bitmap.width} ${bitmap.height}`);
   els.workspace.hidden = false;
-  selected = null;
-  rerun();
+  undoStack = [];
+  redoStack = [];
+  selected = [];
+  review = null;
+  resplit();
 }
 
 // Spec 8.2: sheet id is the first 16 hex characters of the file's SHA-256.
@@ -102,79 +156,325 @@ async function sheetId(bytes: ArrayBuffer): Promise<string> {
   return Array.from(hash.slice(0, 8), (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-// Short delay so typing in a settings box re-splits once, not on every keystroke.
+// Re-split with the current settings. This replaces any manual edits, so the previous
+// state goes on the undo stack. A short delay means typing "200" splits once, not three times.
 let pending: ReturnType<typeof setTimeout> | undefined;
-function rerun() {
+function resplit() {
   if (!sheet) return;
   clearTimeout(pending);
   pending = setTimeout(() => {
-    result = split(sheet!.image, settings);
-    render();
+    const result = split(sheet!.image, settings);
+    splitMs = result.ms;
+    const next = fromSplit(result);
+    // Keep typed row titles when the rows still line up.
+    if (review && review.rows.length === next.rows.length) {
+      next.rows.forEach((row, i) => (row.titleText = review!.rows[i].titleText));
+    }
+    selected = []; // box keys start again from 1, so an old selection would point at the wrong box
+    commit(next, lastSettings ?? settings);
+    lastSettings = { ...settings };
+    setStatus(`Split into ${result.rows.length} rows and ${result.iconCount} icons.${undoStack.length ? " Undo brings back the previous boxes." : ""}`);
   }, 30);
+}
+let lastSettings: SplitSettings | null = null;
+
+// Make an edit: remember the current state for undo, then show the new one.
+function commit(next: Review, prevSettings: SplitSettings = settings) {
+  if (next === review) return;
+  if (review) undoStack.push({ review, settings: { ...prevSettings } });
+  if (undoStack.length > 200) undoStack.shift();
+  redoStack = [];
+  review = next;
+  selected = selected.filter((k) => findIcon(next, k));
+  render();
+}
+
+function undo() {
+  const prev = undoStack.pop();
+  if (!prev || !review) return;
+  redoStack.push({ review, settings: { ...settings } });
+  restore(prev);
+  setStatus("Undone.");
+}
+
+function redo() {
+  const next = redoStack.pop();
+  if (!next || !review) return;
+  undoStack.push({ review, settings: { ...settings } });
+  restore(next);
+  setStatus("Redone.");
+}
+
+function restore(s: Snapshot) {
+  review = s.review;
+  settings = { ...s.settings };
+  lastSettings = { ...settings };
+  syncSettingsForm();
+  selected = selected.filter((k) => findIcon(s.review, k));
+  render();
+}
+
+function doMerge() {
+  if (!review || selected.length < 2) return;
+  const icons = selected.map((k) => findIcon(review!, k)!);
+  if (new Set(icons.map((i) => i.row)).size > 1) return setStatus("Only boxes in the same row can be merged.");
+  const before = review.nextKey;
+  const next = mergeIcons(review, ink(), selected);
+  selected = [before];
+  commit(next);
+  setStatus(`Merged ${icons.length} boxes.`);
+}
+
+function doDelete() {
+  if (!review || !selected.length) return;
+  const n = selected.length;
+  const key = selected[0];
+  const after = neighbour(review, key, "right") ?? neighbour(review, key, "left");
+  const next = deleteIcons(review, selected);
+  selected = after && !selected.includes(after) ? [after] : [];
+  commit(next);
+  setStatus(`Deleted ${n} ${n === 1 ? "box" : "boxes"}. Undo brings ${n === 1 ? "it" : "them"} back.`);
+}
+
+function doSplit(key: number, x: number) {
+  if (!review) return;
+  const before = review.nextKey;
+  const next = splitIcon(review, ink(), key, x);
+  if (next === review) return setStatus("That line does not have ink on both sides, so nothing was split.");
+  selected = [before, before + 1];
+  setSplitMode(false);
+  commit(next);
+  setStatus("Split into two boxes.");
+}
+
+function setSplitMode(on: boolean) {
+  splitMode = on && selected.length === 1;
+  els.stage.classList.toggle("splitting", splitMode);
+  els.split.setAttribute("aria-pressed", String(splitMode));
+  if (!splitMode) els.overlay.querySelector(".split-guide")?.remove();
+  updateToolbar();
+}
+
+function select(keys: number[], scroll = false) {
+  selected = keys;
+  if (splitMode && keys.length !== 1) setSplitMode(false);
+  drawOverlay();
+  showDetail();
+  updateToolbar();
+  if (scroll && keys.length) els.overlay.querySelector(`[data-key="${keys[0]}"]`)?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+}
+
+function onKey(e: KeyboardEvent) {
+  if (!review) return;
+  const t = e.target as HTMLElement;
+  if (t.closest("input, textarea, select")) return;
+  const ctrl = e.ctrlKey || e.metaKey;
+  if (ctrl && e.key.toLowerCase() === "z") {
+    e.preventDefault();
+    return e.shiftKey ? redo() : undo();
+  }
+  if (ctrl && e.key.toLowerCase() === "y") {
+    e.preventDefault();
+    return redo();
+  }
+  if (ctrl || e.altKey) return;
+  const dirs: Record<string, "left" | "right" | "up" | "down"> = { ArrowLeft: "left", ArrowRight: "right", ArrowUp: "up", ArrowDown: "down" };
+  if (dirs[e.key]) {
+    e.preventDefault();
+    const from = selected[selected.length - 1] ?? allIcons(review)[0]?.key;
+    if (from === undefined) return;
+    const to = selected.length ? neighbour(review, from, dirs[e.key]) : from;
+    if (to !== undefined) select([to], true);
+    return;
+  }
+  if (e.key === "Delete" || e.key === "Backspace") {
+    e.preventDefault();
+    return doDelete();
+  }
+  if (e.key === "m" || e.key === "M") return doMerge();
+  if (e.key === "s" || e.key === "S") return setSplitMode(!splitMode);
+  if (e.key === "Escape") return splitMode ? setSplitMode(false) : select([]);
+}
+
+// Image coordinates for a pointer event (the overlay is scaled to fit the page).
+function toImage(e: { clientX: number; clientY: number }) {
+  const r = els.overlay.getBoundingClientRect();
+  return { x: ((e.clientX - r.left) / r.width) * sheet!.image.width, y: ((e.clientY - r.top) / r.height) * sheet!.image.height };
+}
+function imagePerScreenPx() {
+  return sheet!.image.width / els.overlay.getBoundingClientRect().width;
+}
+
+function onPointerDown(e: PointerEvent) {
+  if (!review || e.button !== 0) return;
+  const target = e.target as SVGElement;
+  const handle = target.dataset.handle as Handle | undefined;
+  if (handle && !splitMode && selected.length === 1) return startResize(e, selected[0], handle);
+
+  const key = Number(target.dataset.key);
+  if (splitMode) {
+    if (key === selected[0]) doSplit(key, Math.round(toImage(e).x));
+    else setSplitMode(false);
+    return;
+  }
+  if (!key) return select([]);
+  if (e.shiftKey || e.ctrlKey || e.metaKey) {
+    select(selected.includes(key) ? selected.filter((k) => k !== key) : [...selected, key]);
+  } else {
+    select([key]);
+  }
+}
+
+// Drag a handle to move that edge or corner; the box is saved when the pointer lifts.
+function startResize(e: PointerEvent, key: number, handle: Handle) {
+  e.preventDefault();
+  const icon = findIcon(review!, key)!;
+  const start = toImage(e);
+  const rectEl = els.overlay.querySelector<SVGRectElement>(`rect[data-key="${key}"]`)!;
+  let box: Box = { x: icon.x, y: icon.y, w: icon.w, h: icon.h };
+  els.overlay.setPointerCapture(e.pointerId);
+  const move = (ev: PointerEvent) => {
+    const p = toImage(ev);
+    const dx = p.x - start.x;
+    const dy = p.y - start.y;
+    let { x, y, w, h } = icon;
+    if (handle.includes("w")) (x += dx), (w -= dx);
+    if (handle.includes("e")) w += dx;
+    if (handle.includes("n")) (y += dy), (h -= dy);
+    if (handle.includes("s")) h += dy;
+    box = { x, y, w, h };
+    const n = normaliseBox(box);
+    rectEl.setAttribute("x", String(n.x));
+    rectEl.setAttribute("y", String(n.y));
+    rectEl.setAttribute("width", String(n.w));
+    rectEl.setAttribute("height", String(n.h));
+    els.overlay.querySelectorAll(".handle, .anchor.selected-anchor").forEach((el) => el.remove());
+  };
+  const up = () => {
+    els.overlay.removeEventListener("pointermove", move);
+    els.overlay.removeEventListener("pointerup", up);
+    els.overlay.removeEventListener("pointercancel", up);
+    if (box.x !== icon.x || box.y !== icon.y || box.w !== icon.w || box.h !== icon.h) {
+      commit(resizeIcon(review!, ink(), key, box));
+      setStatus("Box resized.");
+    } else {
+      drawOverlay();
+    }
+  };
+  els.overlay.addEventListener("pointermove", move);
+  els.overlay.addEventListener("pointerup", up);
+  els.overlay.addEventListener("pointercancel", up);
+}
+
+function normaliseBox(b: Box): Box {
+  return { x: Math.min(b.x, b.x + b.w), y: Math.min(b.y, b.y + b.h), w: Math.abs(b.w), h: Math.abs(b.h) };
+}
+
+// In split mode, show where the cut would go.
+function onSplitHover(e: PointerEvent) {
+  if (!splitMode || !review) return;
+  const icon = findIcon(review, selected[0]);
+  let guide = els.overlay.querySelector<SVGLineElement>(".split-guide");
+  const p = toImage(e);
+  if (!icon || p.x <= icon.x || p.x >= icon.x + icon.w || p.y < icon.y || p.y > icon.y + icon.h) return guide?.remove();
+  if (!guide) {
+    guide = document.createElementNS(SVG_NS, "line");
+    guide.setAttribute("class", "split-guide");
+    els.overlay.append(guide);
+  }
+  const x = String(Math.round(p.x));
+  guide.setAttribute("x1", x);
+  guide.setAttribute("x2", x);
+  guide.setAttribute("y1", String(icon.y));
+  guide.setAttribute("y2", String(icon.y + icon.h));
 }
 
 function render() {
-  if (!sheet || !result) return;
-  const r = result;
-  const icons = r.rows.flatMap((row) => row.icons);
-  const touching = r.rows.filter((row) => row.titleTouching).length;
-  const untitled = r.rows.filter((row) => !row.title).length;
-  const mismatched = r.rows.filter((row) => row.countMismatch).length;
-  const flagged = icons.filter((i) => i.flags.length).length;
-  els.summary.innerHTML = "";
-  els.summary.append(
-    stat("Sheet", `${sheet.filename}`, `id ${sheet.id}, ${r.width} by ${r.height} px`),
-    stat("Rows", String(r.rows.length), untitled ? `${untitled} without a title` : "all titled"),
-    stat("Icons", String(r.iconCount), flagged ? `${flagged} flagged for review` : "none flagged"),
-    stat("Split time", `${Math.round(r.ms)} ms`, touching ? `${touching} titles close to their icons` : "titles all separate"),
+  if (!sheet || !review) return;
+  const icons = allIcons(review);
+  const untitled = review.rows.filter((row) => !row.title).length;
+  const flagged = icons.filter((i) => i.flags.length || i.extras.length).length;
+  const mismatched = review.rows.filter((row) => mismatch(row.icons.length)).length;
+  els.summary.replaceChildren(
+    stat("Sheet", sheet.filename, `id ${sheet.id}, ${sheet.image.width} by ${sheet.image.height} px`),
+    stat("Rows", String(review.rows.length), untitled ? `${untitled} without a title` : "all titled"),
+    stat("Icons", String(icons.length), flagged ? `${flagged} flagged for review` : "none flagged"),
+    stat("Split time", `${Math.round(splitMs)} ms`, undoStack.length ? `${undoStack.length} edits so far` : "no edits yet"),
   );
   if (mismatched) els.summary.append(stat("Check", `${mismatched} rows`, `not ${settings.expectedPerRow} icons`, true));
-  setStatus(`Split into ${r.rows.length} rows and ${r.iconCount} icons.`);
-
-  drawOverlay(r);
-  drawRowList(r);
+  drawOverlay();
+  drawRowList();
   showDetail();
+  updateToolbar();
+}
+
+function mismatch(n: number) {
+  return settings.expectedPerRow > 0 && n !== settings.expectedPerRow;
 }
 
 function stat(label: string, value: string, note: string, warn = false) {
   const d = document.createElement("div");
   d.className = warn ? "stat warn" : "stat";
-  d.innerHTML = `<span class="label"></span><span class="value"></span><span class="note"></span>`;
-  d.querySelector(".label")!.textContent = label;
-  d.querySelector(".value")!.textContent = value;
-  d.querySelector(".note")!.textContent = note;
+  for (const [cls, text] of [["label", label], ["value", value], ["note", note]]) {
+    const s = document.createElement("span");
+    s.className = cls;
+    s.textContent = text;
+    d.append(s);
+  }
   return d;
 }
 
-function drawOverlay(r: SplitResult) {
+function drawOverlay() {
+  if (!review || !sheet) return;
   const svg = els.overlay;
   svg.replaceChildren();
-  const stroke = Math.max(1.5, r.width / 600);
-  for (const row of r.rows) {
-    if (row.title) svg.append(rect(row.title, "title", `Row ${row.index} title${row.titleTouching ? " (close to icons)" : ""}`));
+  const px = imagePerScreenPx();
+  for (const row of review.rows) {
+    if (row.title) svg.append(rect(row.title, "title", `Row ${row.index} title`));
     for (const icon of row.icons) {
-      const id = iconId(sheet!.id, icon);
-      for (const extra of icon.extras) svg.append(rect(extra, "extra", `Possible split from ${id}`));
-      const kind = icon.flags.includes("possible-merge")
-        ? "merge"
-        : icon.flags.includes("auto-cut")
-          ? "cut"
-          : icon.flags.includes("possible-split")
-            ? "split"
-            : "icon";
+      const id = iconId(sheet.id, icon);
+      for (const extra of icon.extras) svg.append(rect(extra, "extra", `Mark left out of ${id}`));
+      const kind = icon.flags.includes("auto-cut") ? "cut" : icon.flags.includes("possible-split") || icon.extras.length ? "split" : "icon";
       const el = rect(icon, kind, `${id}${icon.flags.length ? " (" + icon.flags.join(", ").replaceAll("-", " ") + ")" : ""}`);
-      el.dataset.id = id;
-      el.classList.toggle("selected", id === selected);
-      el.addEventListener("click", () => select(id));
+      el.dataset.key = String(icon.key);
+      if (selected.includes(icon.key)) el.classList.add("selected");
       svg.append(el);
-      const anchor = document.createElementNS(SVG_NS, "circle");
-      anchor.setAttribute("cx", String(icon.x + icon.anchorX * icon.w));
-      anchor.setAttribute("cy", String(icon.y + icon.anchorY * icon.h));
-      anchor.setAttribute("r", String(stroke * 1.6));
-      anchor.setAttribute("class", "anchor");
-      svg.append(anchor);
+      svg.append(anchorDot(icon, px));
     }
   }
+  // Resize handles on a single selected box, a fixed size on screen whatever the zoom.
+  if (selected.length === 1) {
+    const icon = findIcon(review, selected[0]);
+    if (icon) {
+      // Bigger handles for fingers on tablets.
+      const s = (matchMedia("(pointer: coarse)").matches ? 22 : 10) * px;
+      const { x, y, w, h } = icon;
+      const spots: [Handle, number, number][] = [
+        ["nw", x, y], ["n", x + w / 2, y], ["ne", x + w, y],
+        ["w", x, y + h / 2], ["e", x + w, y + h / 2],
+        ["sw", x, y + h], ["s", x + w / 2, y + h], ["se", x + w, y + h],
+      ];
+      for (const [name, cx, cy] of spots) {
+        const hEl = document.createElementNS(SVG_NS, "rect");
+        hEl.setAttribute("x", String(cx - s / 2));
+        hEl.setAttribute("y", String(cy - s / 2));
+        hEl.setAttribute("width", String(s));
+        hEl.setAttribute("height", String(s));
+        hEl.setAttribute("class", `handle h-${name}`);
+        hEl.dataset.handle = name;
+        svg.append(hEl);
+      }
+    }
+  }
+}
+
+function anchorDot(icon: ReviewIcon, px: number) {
+  const dot = document.createElementNS(SVG_NS, "circle");
+  dot.setAttribute("cx", String(icon.x + icon.anchorX * icon.w));
+  dot.setAttribute("cy", String(icon.y + icon.anchorY * icon.h));
+  dot.setAttribute("r", String(Math.max(1.5, 2.5 * px)));
+  dot.setAttribute("class", "anchor");
+  return dot;
 }
 
 function rect(b: Box, kind: string, label: string) {
@@ -190,16 +490,25 @@ function rect(b: Box, kind: string, label: string) {
   return el;
 }
 
-function drawRowList(r: SplitResult) {
+function drawRowList() {
+  if (!review) return;
+  // Keep focus in a title box while the list is rebuilt.
+  const focused = document.activeElement instanceof HTMLInputElement ? document.activeElement.dataset.row : undefined;
   els.rows.replaceChildren();
-  for (const row of r.rows) {
+  for (const row of review.rows) {
     const li = document.createElement("li");
-    li.className = row.countMismatch || !row.title ? "row warn" : "row";
+    li.className = mismatch(row.icons.length) || !row.title ? "row warn" : "row";
     const head = document.createElement("div");
     head.className = "row-head";
-    head.innerHTML = `<span class="row-num"></span><span class="row-count"></span>`;
-    head.querySelector(".row-num")!.textContent = `Row ${row.index}`;
-    head.querySelector(".row-count")!.textContent = `${row.icons.length} icons`;
+    const num = document.createElement("button");
+    num.type = "button";
+    num.className = "row-num";
+    num.textContent = `Row ${row.index}`;
+    num.title = "Select the first box in this row";
+    num.addEventListener("click", () => row.icons[0] && select([row.icons[0].key], true));
+    const count = document.createElement("span");
+    count.textContent = `${row.icons.length} icons${mismatch(row.icons.length) ? `, expected ${settings.expectedPerRow}` : ""}`;
+    head.append(num, count);
     li.append(head);
     if (row.title) {
       const c = crop(row.title, 2, 260);
@@ -213,34 +522,41 @@ function drawRowList(r: SplitResult) {
       p.textContent = "No title found";
       li.append(p);
     }
-    const notes: string[] = [];
-    if (row.titleTouching) notes.push("title close to icons");
-    if (row.countMismatch) notes.push(`expected ${settings.expectedPerRow}`);
-    if (notes.length) {
-      const p = document.createElement("p");
-      p.className = "row-note";
-      p.textContent = notes.join(", ");
-      li.append(p);
-    }
-    li.tabIndex = 0;
-    const focus = () => els.stage.querySelector(`[data-id="${iconId(sheet!.id, { row: row.index, col: 1 })}"]`)?.scrollIntoView({ block: "center", behavior: "smooth" });
-    li.addEventListener("click", focus);
-    li.addEventListener("keydown", (e) => e.key === "Enter" && focus());
+    const label = document.createElement("label");
+    label.className = "title-edit";
+    const span = document.createElement("span");
+    span.textContent = "Title";
+    const input = document.createElement("input");
+    input.type = "text";
+    input.value = row.titleText;
+    input.placeholder = "type the row title";
+    input.dataset.row = String(row.index);
+    input.addEventListener("change", () => {
+      const text = input.value.trim();
+      if (review && text !== row.titleText) commit(setTitleText(review, row.index, text));
+    });
+    input.addEventListener("keydown", (e) => e.key === "Enter" && input.blur());
+    label.append(span, input);
+    li.append(label);
     els.rows.append(li);
   }
-}
-
-function select(id: string) {
-  selected = id;
-  els.overlay.querySelectorAll(".box.selected").forEach((el) => el.classList.remove("selected"));
-  els.overlay.querySelector(`[data-id="${id}"]`)?.classList.add("selected");
-  showDetail();
+  if (focused) els.rows.querySelector<HTMLInputElement>(`input[data-row="${focused}"]`)?.focus();
 }
 
 function showDetail() {
-  const icon = findIcon(selected);
-  if (!icon || !sheet) {
-    els.detail.innerHTML = `<p class="hint">Click a box on the sheet to inspect that icon.</p>`;
+  if (!review || !sheet) return;
+  if (selected.length > 1) {
+    const icons = selected.map((k) => findIcon(review!, k)).filter((i): i is ReviewIcon => !!i);
+    const sameRow = new Set(icons.map((i) => i.row)).size === 1;
+    els.detail.replaceChildren(
+      para(`${icons.length} boxes selected.`),
+      para(sameRow ? "Press M or the Merge button to join them into one box." : "These are in different rows, so they cannot be merged.", "hint"),
+    );
+    return;
+  }
+  const icon = selected.length ? findIcon(review, selected[0]) : undefined;
+  if (!icon) {
+    els.detail.replaceChildren(para("Click a box on the sheet to inspect or edit it. Shift-click to select more than one.", "hint"));
     return;
   }
   els.detail.replaceChildren();
@@ -261,11 +577,48 @@ function showDetail() {
   add("Anchor", `${icon.anchorX.toFixed(2)}, ${icon.anchorY.toFixed(2)}`);
   add("Flags", icon.flags.length ? icon.flags.join(", ").replaceAll("-", " ") : "none");
   els.detail.append(h, c, dl);
+  if (icon.extras.length) {
+    const box = document.createElement("div");
+    box.className = "extras";
+    box.append(para(`${icon.extras.length} nearby ${icon.extras.length === 1 ? "mark was" : "marks were"} left out of this box (dashed outline).`));
+    const inc = button("Include them", () => commit(includeExtras(review!, ink(), icon.key)));
+    const dis = button("Leave them out", () => commit(dismissExtras(review!, icon.key)));
+    box.append(inc, dis);
+    els.detail.append(box);
+  }
 }
 
-function findIcon(id: string | null): IconBox | undefined {
-  if (!id || !result || !sheet) return;
-  return result.rows.flatMap((r) => r.icons).find((i) => iconId(sheet!.id, i) === id);
+function para(text: string, cls = "") {
+  const p = document.createElement("p");
+  if (cls) p.className = cls;
+  p.textContent = text;
+  return p;
+}
+
+function button(text: string, onClick: () => void) {
+  const b = document.createElement("button");
+  b.type = "button";
+  b.className = "ghost small";
+  b.textContent = text;
+  b.addEventListener("click", onClick);
+  return b;
+}
+
+function updateToolbar() {
+  const icons = review ? selected.map((k) => findIcon(review!, k)).filter((i): i is ReviewIcon => !!i) : [];
+  const sameRow = icons.length >= 2 && new Set(icons.map((i) => i.row)).size === 1;
+  els.merge.disabled = !sameRow;
+  els.split.disabled = icons.length !== 1;
+  els.del.disabled = icons.length === 0;
+  els.undo.disabled = undoStack.length === 0;
+  els.redo.disabled = redoStack.length === 0;
+  els.hint.textContent = splitMode
+    ? "Click inside the selected box where the cut should go. Esc cancels."
+    : icons.length === 1
+      ? "Drag the square handles to resize. S splits, Delete removes, arrow keys move to the next box."
+      : icons.length > 1
+        ? "M merges the selected boxes. Delete removes them."
+        : "Click a box to select it. Shift-click adds more boxes to the selection.";
 }
 
 // Copy part of the sheet into a small canvas, zoomed but no wider than maxW.
@@ -286,9 +639,11 @@ function buildSettingsForm() {
   for (const f of FIELDS) {
     const label = document.createElement("label");
     label.title = f.help;
-    label.innerHTML = `<span></span><input type="number" required>`;
-    label.querySelector("span")!.textContent = f.label;
-    const input = label.querySelector("input")!;
+    const span = document.createElement("span");
+    span.textContent = f.label;
+    const input = document.createElement("input");
+    input.type = "number";
+    input.required = true;
     input.name = f.key;
     input.min = String(f.min);
     input.max = String(f.max);
@@ -297,12 +652,21 @@ function buildSettingsForm() {
       const v = Number(input.value);
       if (!input.validity.valid || !Number.isFinite(v)) return;
       settings = { ...settings, [f.key]: v };
-      rerun();
+      if (f.key === "expectedPerRow") return render(); // only changes the warnings
+      resplit();
     });
+    label.append(span, input);
     els.settings.append(label);
   }
+}
+
+function syncSettingsForm() {
+  for (const f of FIELDS) (els.settings.elements.namedItem(f.key) as HTMLInputElement).value = String(settings[f.key]);
 }
 
 function setStatus(text: string) {
   els.status.textContent = text;
 }
+
+// Keep handles and dots a sensible size when the window is resized.
+window.addEventListener("resize", () => drawOverlay());

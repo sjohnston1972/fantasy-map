@@ -37,6 +37,15 @@
       </aside>
 
       <div class="sheet-wrap">
+        <div class="toolbar" role="toolbar" aria-label="Edit boxes">
+          <button id="tool-merge" type="button" class="tool" disabled title="Merge selected boxes (M)">Merge <kbd>M</kbd></button>
+          <button id="tool-split" type="button" class="tool" disabled aria-pressed="false" title="Split the selected box with a vertical cut (S)">Split <kbd>S</kbd></button>
+          <button id="tool-delete" type="button" class="tool" disabled title="Delete selected boxes (Delete)">Delete <kbd>Del</kbd></button>
+          <span class="tool-sep"></span>
+          <button id="tool-undo" type="button" class="tool" disabled title="Undo (Ctrl+Z)">Undo</button>
+          <button id="tool-redo" type="button" class="tool" disabled title="Redo (Ctrl+Y)">Redo</button>
+          <p id="tool-hint" class="tool-hint"></p>
+        </div>
         <ul class="legend" aria-label="Box colours">
           <li><i class="k icon"></i>Icon</li>
           <li><i class="k title"></i>Title strip</li>
@@ -54,6 +63,7 @@
       <aside class="panel">
         <h2>Settings</h2>
         <form id="settings" class="settings"></form>
+        <p class="hint small">Changing a setting splits the sheet again and replaces your box edits. Undo brings them back.</p>
         <button id="reset" type="button" class="ghost small">Reset to defaults</button>
         <h2>Selected icon</h2>
         <div id="detail" class="detail"></div>
