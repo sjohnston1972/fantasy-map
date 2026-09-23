@@ -59,3 +59,28 @@ describe("split a larger sheet", () => {
     expect(b.rows.map((r) => r.icons.length)).toEqual(a.rows.map((r) => r.icons.length));
   });
 });
+
+// Icons per row on every reference sheet, counted by eye from the images.
+const SHEETS: Record<string, number[]> = {
+  "desert.png": Array(11).fill(8),
+  "forest.png": Array(14).fill(8),
+  "maritime.png": Array(12).fill(8),
+  "roads and paths.png": Array(12).fill(8),
+  "steampunk village.png": Array(13).fill(8),
+  "town.png": Array(12).fill(8),
+  "religion.png": Array(13).fill(8),
+  "siege.png": Array(13).fill(8),
+  "monsters.png": Array(13).fill(8),
+  "deah and glory.png": Array(12).fill(8),
+  "gods and demons.png": [8, 8, 8, 8, 8, 8, 8, 9, 8, 10, 10, 9, 10],
+};
+
+describe("every reference sheet", () => {
+  for (const [name, perRow] of Object.entries(SHEETS)) {
+    it(`${name} splits into the right rows and icons, all titled`, () => {
+      const r = split(load(name));
+      expect(r.rows.map((row) => row.icons.length)).toEqual(perRow);
+      expect(r.rows.every((row) => row.title)).toBe(true);
+    });
+  }
+});

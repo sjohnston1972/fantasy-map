@@ -8,6 +8,7 @@
   --title: #b7791f;
   --merge: #c0392b;
   --split: #7d3c98;
+  --cut: #d35400;
   --focus: #2563eb;
 }
 * { box-sizing: border-box; }
@@ -80,6 +81,7 @@ button { font: inherit; cursor: pointer; }
 .k.title { border-color: var(--title); background: color-mix(in srgb, var(--title) 18%, transparent); }
 .k.merge { border-color: var(--merge); }
 .k.split { border-color: var(--split); }
+.k.cut { border-color: var(--cut); }
 .k.extra { border-color: var(--split); border-style: dashed; }
 .k.anchor { width: 8px; height: 8px; border: 0; border-radius: 50%; background: var(--merge); }
 
@@ -90,9 +92,10 @@ button { font: inherit; cursor: pointer; }
 .box.icon { stroke: var(--icon); cursor: pointer; }
 .box.merge { stroke: var(--merge); stroke-width: 2.5; cursor: pointer; }
 .box.split { stroke: var(--split); stroke-width: 2.5; cursor: pointer; }
+.box.cut { stroke: var(--cut); stroke-width: 2.5; cursor: pointer; }
 .box.extra { stroke: var(--split); stroke-dasharray: 4 3; }
 .box.title { stroke: var(--title); fill: color-mix(in srgb, var(--title) 18%, transparent); }
-.box.icon:hover, .box.merge:hover, .box.split:hover { fill: color-mix(in srgb, var(--icon) 10%, transparent); }
+.box.icon:hover, .box.merge:hover, .box.split:hover, .box.cut:hover { fill: color-mix(in srgb, var(--icon) 10%, transparent); }
 .box.selected { stroke: var(--focus); stroke-width: 3; fill: color-mix(in srgb, var(--focus) 10%, transparent); }
 .anchor { fill: var(--merge); pointer-events: none; }
 

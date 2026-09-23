@@ -155,7 +155,13 @@ function drawOverlay(r: SplitResult) {
     for (const icon of row.icons) {
       const id = iconId(sheet!.id, icon);
       for (const extra of icon.extras) svg.append(rect(extra, "extra", `Possible split from ${id}`));
-      const kind = icon.flags.includes("possible-merge") ? "merge" : icon.flags.includes("possible-split") ? "split" : "icon";
+      const kind = icon.flags.includes("possible-merge")
+        ? "merge"
+        : icon.flags.includes("auto-cut")
+          ? "cut"
+          : icon.flags.includes("possible-split")
+            ? "split"
+            : "icon";
       const el = rect(icon, kind, `${id}${icon.flags.length ? " (" + icon.flags.join(", ").replaceAll("-", " ") + ")" : ""}`);
       el.dataset.id = id;
       el.classList.toggle("selected", id === selected);

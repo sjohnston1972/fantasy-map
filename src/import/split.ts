@@ -36,7 +36,7 @@ export interface Box {
   h: number;
 }
 
-export type IconFlag = "possible-merge" | "possible-split";
+export type IconFlag = "possible-merge" | "possible-split" | "auto-cut";
 
 export interface IconBox extends Box {
   row: number; // 1-based
@@ -86,7 +86,82 @@ export function split(img: ImageLike, settings: SplitSettings = DEFAULT_SETTINGS
 
   const mask = inkMask(img, settings.threshold);
 
-  // 4.2 Rows: bands of ink separated by blank gutters.
+  // Rows are found from their titles when the sheet has them, since dense sheets
+  // often have row gaps narrower than rowGap. Otherwise fall back to gutters (4.2).
+  const titles = findTitleLines(mask, W, titleMaxH);
+  const rows =
+    titles.length >= 2
+      ? rowsFromTitles(mask, W, H, titles, rowGap, noise)
+      : rowsFromGutters(mask, W, H, rowGap, noise, titleMaxH, titleMinW);
+
+  // 4.4 Columns: blank gutters between icons, per row.
+  const rowCells = rows.map((row) => {
+    const { band } = row;
+    const colProfile = new Int32Array(W);
+    for (let y = band.y; y < band.y + band.h; y++) {
+      const o = y * W;
+      for (let x = band.x; x < band.x + band.w; x++) colProfile[x] += mask[o + x];
+    }
+    return { colProfile, cells: runsBetweenGaps(colProfile, band.x, band.x + band.w, colGap) };
+  });
+  // Typical icon width across the whole sheet, so a row where every icon touches its
+  // neighbour is still recognised as over-wide.
+  const widths = rowCells.flatMap((r) => r.cells.map(([a, b]) => b - a)).sort((a, b) => a - b);
+  const typicalW = widths.length ? widths[Math.floor(widths.length / 2)] : 0;
+  // Typical distance between neighbouring icon centres, from cells of normal width.
+  const steps = rowCells
+    .flatMap(({ cells }) =>
+      cells.slice(1).flatMap(([a, b], j) => {
+        const [pa, pb] = cells[j];
+        const normal = (w: number) => w <= 1.6 * typicalW;
+        return normal(b - a) && normal(pb - pa) ? [(a + b) / 2 - (pa + pb) / 2] : [];
+      }),
+    )
+    .sort((a, b) => a - b);
+  const pitch = steps.length ? steps[Math.floor(steps.length / 2)] : typicalW;
+
+  // 4.5 and 4.6 Blobs and crops within each cell.
+  for (const [i, row] of rows.entries()) {
+    const { band } = row;
+    const { colProfile, cells } = rowCells[i];
+    for (const [cx0, cx1] of cells) {
+      // A cell much wider than a typical icon holds several icons with no clean gap
+      // between them: cut it at the emptiest columns and flag the pieces for review.
+      const wide = cx1 - cx0 > Math.max(1.6 * typicalW, 1.5 * pitch);
+      for (const [x0, x1] of wide ? cutWideCell(colProfile, cx0, cx1, typicalW, pitch) : [[cx0, cx1]]) {
+        const blobs = cellBlobs(mask, W, x0, band.y, x1, band.y + band.h, mergeRadius, noise);
+        if (!blobs.length) continue;
+        const [main, ...rest] = blobs;
+        const flags: IconFlag[] = [];
+        if (rest.length) flags.push("possible-split");
+        if (wide) flags.push("auto-cut");
+        const crop = padBox(main, pad, W, H);
+        row.icons.push({
+          ...crop,
+          row: row.index,
+          col: row.icons.length + 1,
+          // 4.6 anchor: bottom centre of the ink, as a fraction of the crop
+          anchorX: (main.x + main.w / 2 - crop.x) / crop.w,
+          anchorY: (main.y + main.h - crop.y) / crop.h,
+          flags,
+          extras: rest.map((b) => padBox(b, pad, W, H)),
+        });
+      }
+    }
+    row.countMismatch = settings.expectedPerRow > 0 && row.icons.length !== settings.expectedPerRow;
+  }
+
+  return {
+    width: W,
+    height: H,
+    scale,
+    rows,
+    iconCount: rows.reduce((n, r) => n + r.icons.length, 0),
+    ms: now() - t0,
+  };
+}
+
+function profileRows(mask: Uint8Array, W: number, H: number): Int32Array {
   const rowProfile = new Int32Array(H);
   for (let y = 0; y < H; y++) {
     let n = 0;
@@ -94,10 +169,100 @@ export function split(img: ImageLike, settings: SplitSettings = DEFAULT_SETTINGS
     for (let x = 0; x < W; x++) n += mask[o + x];
     rowProfile[y] = n;
   }
+  return rowProfile;
+}
+
+interface TitleLine extends Box {
+  letters: Blob[];
+}
+
+// Title lines: runs of letter-sized marks on one text line, starting near the left
+// margin, all starting at about the same x. Returned top to bottom.
+export function findTitleLines(mask: Uint8Array, W: number, titleMaxH: number): TitleLine[] {
+  const minLetter = Math.max(3, Math.round(titleMaxH / 5));
+  const H = mask.length / W;
+  const letters = components(mask, W, 0, 0, W, H)
+    .filter((b) => b.h >= minLetter && b.h < titleMaxH)
+    .sort((a, b) => a.x - b.x);
+
+  // Chain letters left to right into lines: same text line, small gap between them.
+  const lines: TitleLine[] = [];
+  for (const b of letters) {
+    const line = lines.find((l) => {
+      if (b.x - (l.x + l.w) > titleMaxH) return false;
+      const top = Math.min(l.y, b.y);
+      const bottom = Math.max(l.y + l.h, b.y + b.h);
+      return bottom - top < titleMaxH && Math.abs(b.y + b.h / 2 - (l.y + l.h / 2)) < titleMaxH / 2;
+    });
+    if (line) {
+      const right = Math.max(line.x + line.w, b.x + b.w);
+      const bottom = Math.max(line.y + line.h, b.y + b.h);
+      line.y = Math.min(line.y, b.y);
+      line.w = right - line.x;
+      line.h = bottom - line.y;
+      line.letters.push(b);
+    } else {
+      lines.push({ x: b.x, y: b.y, w: b.w, h: b.h, letters: [b] });
+    }
+  }
+
+  let candidates = lines.filter((l) => l.x < W * 0.12 && l.w >= 3 * l.h);
+  if (candidates.length < 2) return [];
+  // Titles are set in one font, so their letters share a cap height. A line needs at
+  // least two letters of that height; this rejects flat icon strokes at the margin.
+  const heights = candidates.flatMap((l) => l.letters.map((b) => b.h)).sort((a, b) => a - b);
+  const capH = heights[Math.floor(heights.length / 2)];
+  const tol = Math.max(1, capH * 0.2);
+  candidates = candidates.filter((l) => l.letters.filter((b) => Math.abs(b.h - capH) <= tol).length >= 2);
+  if (candidates.length < 2) return [];
+  // Titles share a left margin; keep the lines that start near the most common x.
+  const xs = candidates.map((l) => l.x).sort((a, b) => a - b);
+  const margin = xs[Math.floor(xs.length / 2)];
+  return candidates.filter((l) => Math.abs(l.x - margin) <= titleMaxH / 2).sort((a, b) => a.y - b.y);
+}
+
+// Rows between consecutive titles. Title letters are erased from the mask first, then
+// the boundary above each title is placed at the emptiest line near its top edge.
+function rowsFromTitles(mask: Uint8Array, W: number, H: number, titles: TitleLine[], rowGap: number, noise: number): RowResult[] {
+  for (const t of titles) for (const l of t.letters) for (const p of l.pixels) mask[p] = 0;
+  const profile = profileRows(mask, W, H);
+
+  const cuts: number[] = [titles[0].y];
+  for (let i = 1; i < titles.length; i++) {
+    const t = titles[i];
+    const from = Math.max(titles[i - 1].y + titles[i - 1].h, t.y - 2 * t.h);
+    let best = t.y;
+    for (let y = t.y + t.h; y >= from; y--) {
+      if (profile[y] < profile[best] || (profile[y] === profile[best] && Math.abs(y - t.y) < Math.abs(best - t.y))) best = y;
+    }
+    cuts.push(best);
+  }
+  cuts.push(H);
+
+  const rows: RowResult[] = [];
+  for (let i = 0; i < titles.length; i++) {
+    const band = inkBox(mask, W, 0, cuts[i], W, cuts[i + 1]);
+    if (!band || (band.h < noise && band.w < noise)) continue;
+    const t = titles[i];
+    const title = { x: t.x, y: t.y, w: t.w, h: t.h };
+    rows.push({
+      index: rows.length + 1,
+      band,
+      title,
+      titleTouching: band.y - (title.y + title.h) < rowGap,
+      icons: [],
+      countMismatch: false,
+    });
+  }
+  return rows;
+}
+
+// 4.2 and 4.3: bands of ink separated by blank gutters, each classified as a title
+// strip or an icon row. Used for sheets without a consistent column of titles.
+function rowsFromGutters(mask: Uint8Array, W: number, H: number, rowGap: number, noise: number, titleMaxH: number, titleMinW: number): RowResult[] {
+  const rowProfile = profileRows(mask, W, H);
   const bands = runsBetweenGaps(rowProfile, 0, H, rowGap);
 
-  // 4.3 Classify each band as a title strip or an icon row, peeling off titles
-  // that sit inside an icon band because the gap under them was too narrow.
   const rows: RowResult[] = [];
   let pendingTitle: Box | null = null;
   for (const [y0, y1] of bands) {
@@ -147,48 +312,30 @@ export function split(img: ImageLike, settings: SplitSettings = DEFAULT_SETTINGS
     });
   }
 
-  // 4.4 to 4.6 Columns, blobs and crops within each icon row.
-  for (const row of rows) {
-    const { band } = row;
-    const colProfile = new Int32Array(W);
-    for (let y = band.y; y < band.y + band.h; y++) {
-      const o = y * W;
-      for (let x = band.x; x < band.x + band.w; x++) colProfile[x] += mask[o + x];
-    }
-    const cells = runsBetweenGaps(colProfile, band.x, band.x + band.w, colGap);
-    const cellWidths = cells.map(([a, b]) => b - a).sort((a, b) => a - b);
-    const medianW = cellWidths.length ? cellWidths[Math.floor(cellWidths.length / 2)] : 0;
+  return rows;
+}
 
-    for (const [x0, x1] of cells) {
-      const blobs = cellBlobs(mask, W, x0, band.y, x1, band.y + band.h, mergeRadius, noise);
-      if (!blobs.length) continue;
-      const [main, ...rest] = blobs;
-      const flags: IconFlag[] = [];
-      if (rest.length) flags.push("possible-split");
-      if (x1 - x0 > 1.6 * medianW) flags.push("possible-merge");
-      const crop = padBox(main, pad, W, H);
-      row.icons.push({
-        ...crop,
-        row: row.index,
-        col: row.icons.length + 1,
-        // 4.6 anchor: bottom centre of the ink, as a fraction of the crop
-        anchorX: (main.x + main.w / 2 - crop.x) / crop.w,
-        anchorY: (main.y + main.h - crop.y) / crop.h,
-        flags,
-        extras: rest.map((b) => padBox(b, pad, W, H)),
-      });
+// Cut an over-wide cell into as many icons as its width suggests (k icons span about
+// k pitches minus one gap), placing each cut at the column with the least ink near
+// where an even split would put it.
+function cutWideCell(profile: Int32Array, x0: number, x1: number, typicalW: number, pitch: number): [number, number][] {
+  const k = Math.max(2, Math.round((x1 - x0 + Math.max(0, pitch - typicalW)) / pitch));
+  const reach = Math.round(typicalW * 0.35);
+  const out: [number, number][] = [];
+  let start = x0;
+  for (let j = 1; j < k; j++) {
+    const target = x0 + Math.round((j * (x1 - x0)) / k);
+    let best = target;
+    for (let d = 1; d <= reach; d++) {
+      for (const x of [target - d, target + d]) {
+        if (x > start && x < x1 && profile[x] < profile[best]) best = x;
+      }
     }
-    row.countMismatch = settings.expectedPerRow > 0 && row.icons.length !== settings.expectedPerRow;
+    out.push([start, best]);
+    start = best;
   }
-
-  return {
-    width: W,
-    height: H,
-    scale,
-    rows,
-    iconCount: rows.reduce((n, r) => n + r.icons.length, 0),
-    ms: now() - t0,
-  };
+  out.push([start, x1]);
+  return out;
 }
 
 export function iconId(sheetId: string, icon: { row: number; col: number }): string {
@@ -196,7 +343,7 @@ export function iconId(sheetId: string, icon: { row: number; col: number }): str
 }
 
 // 4.1 Ink mask: 1 where the pixel is dark enough to be ink, 0 for background.
-function inkMask(img: ImageLike, threshold: number): Uint8Array {
+export function inkMask(img: ImageLike, threshold: number): Uint8Array {
   const { width, height, data } = img;
   const mask = new Uint8Array(width * height);
   for (let i = 0, p = 0; p < mask.length; i += 4, p++) {
