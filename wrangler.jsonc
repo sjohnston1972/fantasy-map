@@ -12,5 +12,25 @@
   },
   "routes": [{ "pattern": "maps.clydeford.net", "custom_domain": true }],
   "workers_dev": false,
-  "observability": { "enabled": true }
+  "observability": { "enabled": true },
+
+  // Symbol library files (sheets/, icons/, packs/ as in spec 8.1).
+  "r2_buckets": [{ "binding": "LIBRARY", "bucket_name": "fantasy-map-library" }],
+
+  // Symbol catalogue (spec 8.2). Schema changes live in migrations/.
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "fantasy-map-catalogue",
+      "database_id": "80f45384-4254-44ac-9e8b-b61caf057cec",
+      "migrations_dir": "migrations"
+    }
+  ],
+
+  // Cloudflare Access protects /admin and /api/import at the edge. The Worker checks the
+  // Access token again itself, so the API stays closed even if the Access app is changed.
+  "vars": {
+    "ACCESS_TEAM_DOMAIN": "clydeford.cloudflareaccess.com",
+    "ACCESS_AUD": "887d6e490c18abef30754332de0f9d2178c80b46c320a22db92f2633e5786523"
+  }
 }

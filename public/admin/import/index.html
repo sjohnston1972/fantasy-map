@@ -28,6 +28,10 @@
   <p id="status" class="status" role="status" aria-live="polite"></p>
 
   <div id="workspace" class="workspace" hidden>
+    <div class="library-bar">
+      <p id="storage-state" class="storage-state checking" role="status" aria-live="polite"></p>
+      <label class="source-tool">Made with <input id="source-tool" type="text" placeholder="image model, e.g. its name and version" autocomplete="off"></label>
+    </div>
     <div id="summary" class="summary"></div>
     <div id="res-warning" class="res-warning" role="note" hidden></div>
 
@@ -61,6 +65,8 @@
           <li><i class="k split"></i>Possible split</li>
           <li><i class="k cut"></i>Cut automatically</li>
           <li><i class="k extra"></i>Split candidate</li>
+          <li><i class="k approved"></i>Approved</li>
+          <li><i class="k rejected"></i>Rejected</li>
           <li><i class="k anchor"></i>Anchor</li>
         </ul>
         <div id="stage" class="stage">

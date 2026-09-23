@@ -16,6 +16,9 @@ import {
   setIconTags,
   clearIconTag,
   setRowTags,
+  markSaved,
+  iconName,
+  isLocked,
   splitIcon,
 } from "../src/import/review";
 
@@ -154,5 +157,47 @@ describe("tags", () => {
     expect(misc[4].autoFacing).toBe("none"); // the sun is symmetric
     const symbols = row(start, 11).icons; // compass star, swords, hourglass are symmetric
     expect([symbols[4], symbols[5], symbols[7]].map((i) => i.autoFacing)).toEqual(["none", "none", "none"]);
+  });
+});
+
+describe("stored icons", () => {
+  const SHEET = "0123456789abcdef";
+  const tags = { category: "cacti", subtype: "", scales: ["region" as const], kind: "point" as const, facing: "none" as const };
+
+  it("locks an approved icon against every edit", () => {
+    const [a, b] = row(start, 3).icons;
+    const r = markSaved(start, a.key, iconName(start, SHEET, a), "approved", tags);
+    const locked = findIcon(r, a.key)!;
+    expect(isLocked(locked)).toBe(true);
+    expect(deleteIcons(r, [a.key])).toBe(r);
+    expect(mergeIcons(r, ink, [a.key, b.key])).toBe(r);
+    expect(splitIcon(r, ink, a.key, a.x + Math.round(a.w / 2))).toBe(r);
+    expect(resizeIcon(r, ink, a.key, { ...a, w: a.w + 10 })).toBe(r);
+    expect(setIconTags(r, a.key, { subtype: "x" })).toBe(r);
+  });
+
+  it("freezes an approved icon's tags so later row changes do not touch it", () => {
+    const a = row(start, 3).icons[0];
+    let r = markSaved(start, a.key, iconName(start, SHEET, a), "approved", tags);
+    r = setRowTags(r, 3, { category: "succulents" });
+    expect(iconTags(row(r, 3), findIcon(r, a.key)!, "cacti").category).toBe("cacti");
+    expect(iconTags(row(r, 3), row(r, 3).icons[1], "cacti").category).toBe("succulents");
+  });
+
+  it("keeps a stored id when the column number changes, and never reuses it", () => {
+    const [a, b] = row(start, 3).icons;
+    let r = markSaved(start, b.key, iconName(start, SHEET, b), "approved", tags); // stored as ...-r3-c2
+    r = deleteIcons(r, [a.key]); // b is now column 1
+    expect(findIcon(r, b.key)!.col).toBe(1);
+    expect(iconName(r, SHEET, findIcon(r, b.key)!)).toBe(`${SHEET}-r3-c2`);
+    const third = row(r, 3).icons[1]; // now column 2, whose natural id is taken
+    expect(iconName(r, SHEET, third)).toBe(`${SHEET}-r3-c2b`);
+  });
+
+  it("still lets a draft that was uploaded be edited", () => {
+    const a = row(start, 3).icons[0];
+    const r = markSaved(start, a.key, iconName(start, SHEET, a), "draft", tags);
+    expect(isLocked(findIcon(r, a.key)!)).toBe(false);
+    expect(deleteIcons(r, [a.key])).not.toBe(r);
   });
 });

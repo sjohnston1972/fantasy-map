@@ -6,6 +6,9 @@ A free web app that procedurally generates black-and-white, hand-inked fantasy m
 - `docs/sheet-import-spec.md`: admin tool that turns symbol sheets into library icons
 - `example artifacts/`: reference symbol sheets and maps used for testing
 - `src/worker.ts`: the Cloudflare Worker (API routes under `/api/`)
+- `src/api/import.ts`: the sheet import API (R2 files, D1 catalogue)
+- `src/api/auth.ts`: checks the Cloudflare Access sign-in on admin API calls
+- `migrations/`: the D1 database schema
 - `src/import/split.ts`: splits a symbol sheet into rows, titles and icon boxes
 - `src/import/review.ts`: the review edits (merge, split, delete, resize) and tags
 - `src/import/ocr.ts`: prepares row titles for OCR and tidies the text
@@ -20,9 +23,11 @@ A free web app that procedurally generates black-and-white, hand-inked fantasy m
 
 ```
 npm install
-npm run dev      # local preview (builds first) at http://localhost:8787
+npm run dev      # local preview (builds first) at http://127.0.0.1:8799
 npm test         # run the automated checks
 npm run deploy   # publish to Cloudflare
 ```
 
 Deploying needs `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` in a local `.env` file, which is never committed.
+
+`/admin` and `/api/import` are protected by Cloudflare Access (app "fantasy-map admin"). For local development, a `.dev.vars` file (never committed) containing `DEV_NO_AUTH=1` skips the sign-in check, and only for requests to 127.0.0.1. Before the first local run, create the local database with `npx wrangler d1 migrations apply fantasy-map-catalogue --local`.

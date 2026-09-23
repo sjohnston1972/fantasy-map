@@ -36,6 +36,15 @@ export interface ReviewIcon extends Box {
   extras: Box[]; // nearby marks left out of the box (possible split)
   autoFacing: Facing; // guessed from the ink
   overrides: Partial<IconTags>; // tags set on this icon alone, replacing the row's
+  status?: IconStatus; // missing means draft
+  savedId?: string; // the id it was stored under; kept even if its column number changes
+}
+
+export type IconStatus = "draft" | "approved" | "rejected";
+
+// Approved and rejected icons are stored on the server and can no longer be edited.
+export function isLocked(i: { status?: IconStatus }): boolean {
+  return i.status === "approved" || i.status === "rejected";
 }
 
 export interface ReviewRow {
@@ -92,14 +101,15 @@ export function findIcon(r: Review, key: number): ReviewIcon | undefined {
 }
 
 export function deleteIcons(r: Review, keys: number[]): Review {
-  const drop = new Set(keys);
+  const drop = new Set(keys.filter((k) => !isLocked(findIcon(r, k) ?? {})));
+  if (!drop.size) return r;
   return withRows(r, (row) => ({ ...row, icons: row.icons.filter((i) => !drop.has(i.key)) }));
 }
 
 // Merge two or more boxes in the same row into one box covering all of them.
 export function mergeIcons(r: Review, ink: Ink, keys: number[]): Review {
   const icons = keys.map((k) => findIcon(r, k)).filter((i): i is ReviewIcon => !!i);
-  if (icons.length < 2 || new Set(icons.map((i) => i.row)).size !== 1) return r;
+  if (icons.length < 2 || new Set(icons.map((i) => i.row)).size !== 1 || icons.some(isLocked)) return r;
   const box = union(icons);
   const merged = makeIcon(r.nextKey, icons[0].row, box, ink, icons.flatMap((i) => i.extras).filter((e) => !inside(e, box)));
   const drop = new Set(keys);
@@ -115,7 +125,7 @@ export function mergeIcons(r: Review, ink: Ink, keys: number[]): Review {
 // a side with no ink means the line missed the icon, and nothing changes.
 export function splitIcon(r: Review, ink: Ink, key: number, atX: number): Review {
   const icon = findIcon(r, key);
-  if (!icon || atX <= icon.x || atX >= icon.x + icon.w) return r;
+  if (!icon || isLocked(icon) || atX <= icon.x || atX >= icon.x + icon.w) return r;
   const left = ink.inkWithin({ x: icon.x, y: icon.y, w: atX - icon.x, h: icon.h });
   const right = ink.inkWithin({ x: atX, y: icon.y, w: icon.x + icon.w - atX, h: icon.h });
   if (!left || !right) return r;
@@ -132,7 +142,7 @@ export function splitIcon(r: Review, ink: Ink, key: number, atX: number): Review
 // Set a box to an exact rectangle (from dragging its edges). The anchor follows the ink.
 export function resizeIcon(r: Review, ink: Ink, key: number, box: Box): Review {
   const icon = findIcon(r, key);
-  if (!icon) return r;
+  if (!icon || isLocked(icon)) return r;
   const b = clampBox(normalise(box), ink);
   const updated: ReviewIcon = {
     ...icon,
@@ -148,13 +158,13 @@ export function resizeIcon(r: Review, ink: Ink, key: number, box: Box): Review {
 // Grow a box to take in the nearby marks it left out, or dismiss them.
 export function includeExtras(r: Review, ink: Ink, key: number): Review {
   const icon = findIcon(r, key);
-  if (!icon || !icon.extras.length) return r;
+  if (!icon || isLocked(icon) || !icon.extras.length) return r;
   return resizeIcon(r, ink, key, union([icon, ...icon.extras]));
 }
 
 export function dismissExtras(r: Review, key: number): Review {
   const icon = findIcon(r, key);
-  if (!icon) return r;
+  if (!icon || isLocked(icon)) return r;
   return replaceIcon(r, { ...icon, extras: [], flags: icon.flags.filter((f) => f !== "possible-split") });
 }
 
@@ -166,7 +176,7 @@ export function setRowTags(r: Review, rowIndex: number, patch: Partial<RowTags>)
 export function setIconTags(r: Review, key: number, patch: Partial<IconTags>, ocrTitle = ""): Review {
   const icon = findIcon(r, key);
   const row = icon && r.rows.find((x) => x.index === icon.row);
-  if (!icon || !row) return r;
+  if (!icon || !row || isLocked(icon)) return r;
   const inherited = inheritedTags(row, icon, ocrTitle);
   const overrides: Partial<IconTags> = { ...icon.overrides };
   for (const [k, v] of Object.entries(patch) as [keyof IconTags, IconTags[keyof IconTags]][]) {
@@ -178,7 +188,7 @@ export function setIconTags(r: Review, key: number, patch: Partial<IconTags>, oc
 
 export function clearIconTag(r: Review, key: number, field: keyof IconTags): Review {
   const icon = findIcon(r, key);
-  if (!icon || !(field in icon.overrides)) return r;
+  if (!icon || isLocked(icon) || !(field in icon.overrides)) return r;
   const overrides = { ...icon.overrides };
   delete overrides[field];
   return replaceIcon(r, { ...icon, overrides });
@@ -202,6 +212,28 @@ export function iconTags(row: ReviewRow, icon: ReviewIcon, ocrTitle = ""): IconT
 
 function same(a: unknown, b: unknown): boolean {
   return Array.isArray(a) && Array.isArray(b) ? a.length === b.length && a.every((x) => b.includes(x)) : a === b;
+}
+
+// Record that an icon has been stored under an id. Approved or rejected icons are
+// locked, and their tags are frozen at the values that were stored, so later changes to
+// the row's tags do not appear to change what is in the catalogue.
+export function markSaved(r: Review, key: number, savedId: string, status: IconStatus, tags: IconTags): Review {
+  const icon = findIcon(r, key);
+  if (!icon) return r;
+  const overrides = isLocked({ status }) ? { ...tags } : icon.overrides;
+  return replaceIcon(r, { ...icon, savedId, status, overrides });
+}
+
+// The catalogue id for an icon (spec 4.6: <sheetId>-r<row>-c<col>). An icon keeps the id
+// it was stored under; a new icon whose natural id is already taken by a stored one gets
+// a letter on the end (c3b) so the two never collide.
+export function iconName(r: Review, sheetId: string, icon: ReviewIcon): string {
+  if (icon.savedId) return icon.savedId;
+  const taken = new Set(allIcons(r).filter((i) => i.savedId && i.key !== icon.key).map((i) => i.savedId));
+  const base = `${sheetId}-r${icon.row}-c${icon.col}`;
+  if (!taken.has(base)) return base;
+  for (const letter of "bcdefghijklmnopqrstuvwxyz") if (!taken.has(base + letter)) return base + letter;
+  return base + "z";
 }
 
 // Arrow-key movement: left and right within a row, up and down to the nearest box

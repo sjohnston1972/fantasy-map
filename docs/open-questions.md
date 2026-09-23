@@ -69,3 +69,23 @@ Not in the spec. Tracing uses its own ink level (default 128, mid-grey) instead 
 splitter's threshold (200). At 200, the soft edges left by the 4x enlargement all count as
 ink and fine hatching fills in; 128 keeps the SVG closest to the original drawing. It is
 exposed in Trace settings next to the three potrace settings the spec lists.
+
+## Review state storage (added in milestone 5)
+
+Not in the spec's storage layout. Reopening a sheet "in its existing review state" (spec
+8.3) needs the boxes, edits and row tags, which have no home in the D1 tables. They are
+saved as `sheets/<sheetId>.review.json` in R2 next to the sheet PNG, through
+`PUT /api/import/sheets/:id/review`, and saved automatically after every edit once
+the sheet is in the library.
+
+## Saved sheets cannot be re-split
+
+Once any icon on a sheet is approved or rejected, changing a split setting is refused:
+re-splitting would throw away the boxes the stored icons came from. The remaining draft
+boxes can still be edited by hand. Approving or rejecting also clears undo history,
+since those decisions live on the server.
+
+## Potrace licence: resolved by Access (milestone 5)
+
+`/admin` is now behind Cloudflare Access (only the owner can sign in), so the potrace file
+is no longer served to the public. Revisit if the import page is ever opened to others.

@@ -21,6 +21,10 @@ import {
   clearIconTag,
   iconTags,
   inheritedTags,
+  iconName,
+  isLocked,
+  markSaved,
+  type IconStatus,
   setIconTags,
   setRowTags,
   splitIcon,
@@ -52,6 +56,7 @@ interface Sheet {
   filename: string;
   url: string;
   image: ImageData;
+  bytes: ArrayBuffer; // the original file, uploaded unchanged (spec 8.1)
 }
 
 // One step of history: the boxes and the settings that produced them.
@@ -94,6 +99,8 @@ const els = {
   legend: $<HTMLElement>("#legend"),
   traceSettings: $<HTMLFormElement>("#trace-settings"),
   traceReset: $<HTMLButtonElement>("#trace-reset"),
+  storageState: $<HTMLElement>("#storage-state"),
+  sourceTool: $<HTMLInputElement>("#source-tool"),
 };
 
 let sheet: Sheet | null = null;
@@ -111,6 +118,13 @@ function ink(): Ink {
   if (inkCache?.key !== key) inkCache = { key, ink: makeInk(sheet!.image, settings) };
   return inkCache.ink;
 }
+
+// Storage state (milestone 5).
+let storage: "checking" | "ready" | "offline" = "checking";
+let storageError = "";
+let registered = false;
+let busy = false;
+let lastSaved: Date | null = null;
 
 // Tracing state (milestone 4). Declared here, before the setup code below uses it.
 let traceSettings: TraceSettings = { ...DEFAULT_TRACE };
@@ -181,6 +195,7 @@ async function load(file: File) {
     filename: file.name,
     url: URL.createObjectURL(file),
     image: ctx.getImageData(0, 0, bitmap.width, bitmap.height),
+    bytes,
   };
   els.img.src = sheet.url;
   els.overlay.setAttribute("viewBox", `0 0 ${bitmap.width} ${bitmap.height}`);
@@ -191,7 +206,10 @@ async function load(file: File) {
   review = null;
   clearTraces();
   upscaleChosen = false;
-  resplit();
+  registered = false;
+  lastSaved = null;
+  storageError = "";
+  if (!(await openFromServer())) resplit();
 }
 
 // Spec 8.2: sheet id is the first 16 hex characters of the file's SHA-256.
@@ -205,6 +223,11 @@ async function sheetId(bytes: ArrayBuffer): Promise<string> {
 let pending: ReturnType<typeof setTimeout> | undefined;
 function resplit() {
   if (!sheet) return;
+  if (review && allIcons(review).some(isLocked)) {
+    settings = { ...(lastSettings ?? settings) };
+    syncSettingsForm();
+    return setStatus("This sheet already has saved icons, so it cannot be split again. Edit the remaining boxes by hand.");
+  }
   clearTimeout(pending);
   pending = setTimeout(() => {
     const result = split(sheet!.image, settings);
@@ -238,6 +261,7 @@ function commit(next: Review, prevSettings: SplitSettings = settings) {
   review = next;
   selected = selected.filter((k) => findIcon(next, k));
   render();
+  scheduleSave();
 }
 
 function undo() {
@@ -278,13 +302,19 @@ function doMerge() {
 
 function doDelete() {
   if (!review || !selected.length) return;
-  const n = selected.length;
-  const key = selected[0];
+  const deletable = selected.filter((k) => !isLocked(findIcon(review!, k) ?? {}));
+  const kept = selected.length - deletable.length;
+  if (!deletable.length) return setStatus("Saved icons are locked and cannot be deleted.");
+  const n = deletable.length;
+  const key = deletable[0];
   const after = neighbour(review, key, "right") ?? neighbour(review, key, "left");
-  const next = deleteIcons(review, selected);
-  selected = after && !selected.includes(after) ? [after] : [];
+  const next = deleteIcons(review, deletable);
+  selected = after && !deletable.includes(after) ? [after] : [];
   commit(next);
-  setStatus(`Deleted ${n} ${n === 1 ? "box" : "boxes"}. Undo brings ${n === 1 ? "it" : "them"} back.`);
+  setStatus(
+    `Deleted ${n} ${n === 1 ? "box" : "boxes"}. Undo brings ${n === 1 ? "it" : "them"} back.` +
+      (kept ? ` ${kept} saved ${kept === 1 ? "icon was" : "icons were"} left alone.` : ""),
+  );
 }
 
 function doSplit(key: number, x: number) {
@@ -319,8 +349,8 @@ function select(keys: number[], scroll = false) {
 
 function onKey(e: KeyboardEvent) {
   if (!review) return;
-  const t = e.target as HTMLElement;
-  if (t.closest("input, textarea, select")) return;
+  const t = e.target;
+  if (t instanceof Element && t.closest("input, textarea, select")) return;
   const ctrl = e.ctrlKey || e.metaKey;
   if (ctrl && e.key.toLowerCase() === "z") {
     e.preventDefault();
@@ -349,6 +379,8 @@ function onKey(e: KeyboardEvent) {
     e.preventDefault();
     return (document.getElementById(selected.length === 1 ? "it-category" : "rt-category") as HTMLInputElement | null)?.focus();
   }
+  if (e.key === "a" || e.key === "A") return void decide(selected, "approved");
+  if (e.key === "r" || e.key === "R") return void decide(selected, "rejected");
   if (e.key === "m" || e.key === "M") return doMerge();
   if (e.key === "t" || e.key === "T") return void traceAll();
   if (e.key === "v" || e.key === "V") return setView(view === "sheet" ? "icons" : "sheet");
@@ -498,9 +530,9 @@ function drawOverlay() {
       svg.append(t);
     }
     for (const icon of row.icons) {
-      const id = iconId(sheet.id, icon);
+      const id = nameOf(icon);
       for (const extra of icon.extras) svg.append(rect(extra, "extra", `Mark left out of ${id}`));
-      const kind = icon.flags.includes("auto-cut") ? "cut" : icon.flags.includes("possible-split") || icon.extras.length ? "split" : "icon";
+      const kind = icon.status === "approved" ? "approved" : icon.status === "rejected" ? "rejected" : icon.flags.includes("auto-cut") ? "cut" : icon.flags.includes("possible-split") || icon.extras.length ? "split" : "icon";
       const el = rect(icon, kind, `${id}${icon.flags.length ? " (" + icon.flags.join(", ").replaceAll("-", " ") + ")" : ""}`);
       el.dataset.key = String(icon.key);
       if (selected.includes(icon.key)) el.classList.add("selected");
@@ -635,7 +667,7 @@ function drawRowTags() {
   const kind = kindField("rt-kind", row.tags.kind, (v) => set({ kind: v }));
   els.rowTags.append(heading, note, cat);
   if (catHint) els.rowTags.append(para(catHint, "hint small"));
-  els.rowTags.append(sub, scales, kind);
+  els.rowTags.append(sub, scales, kind, approveRowButton(row.index));
 }
 
 function showDetail() {
@@ -662,7 +694,7 @@ function showDetail() {
   const c = crop(icon, 3, 320);
   c.className = "icon-crop";
   const h = document.createElement("h3");
-  h.textContent = iconId(sheet.id, icon);
+  h.textContent = nameOf(icon);
   const dl = document.createElement("dl");
   const add = (k: string, v: string) => {
     const dt = document.createElement("dt");
@@ -706,7 +738,11 @@ function showDetail() {
     wrap("kind", kindField("it-kind", tags.kind, (v) => set({ kind: v })), from.kind),
     wrap("facing", facingField("it-facing", tags.facing, (v) => set({ facing: v })), from.facing),
   );
-  els.detail.append(box);
+  if (isLocked(icon)) {
+    box.querySelectorAll("input").forEach((i) => (i.disabled = true));
+    box.querySelectorAll(".link").forEach((l) => l.remove());
+  }
+  els.detail.append(decisionBox(icon), box);
 
   if (icon.extras.length) {
     const ex = document.createElement("div");
@@ -912,6 +948,7 @@ function updateToolbar() {
   els.del.disabled = icons.length === 0;
   els.undo.disabled = undoStack.length === 0;
   els.redo.disabled = redoStack.length === 0;
+  if (busy) els.merge.disabled = els.split.disabled = els.del.disabled = els.undo.disabled = els.redo.disabled = true;
   els.trace.textContent = tracing ? "Stop tracing" : review && tracedCount() === allIcons(review).length ? "All traced" : tracedCount() ? "Trace the rest" : "Trace all icons";
   els.trace.disabled = !tracing && !!review && tracedCount() === allIcons(review).length;
   els.hint.textContent = splitMode
@@ -1098,6 +1135,21 @@ function comparePair(icon: ReviewIcon, big: boolean): HTMLElement {
   wrap.className = big ? "pair big" : "pair";
   const t = traces.get(icon.key);
   const state = traceState(icon);
+  const stored = isLocked(icon) && (!t || state !== "done") ? storedUrls(icon) : null;
+  if (stored) {
+    for (const [label, url] of [["PNG", stored.png], ["SVG", stored.svg]]) {
+      if (!url) continue;
+      const fig = document.createElement("figure");
+      const img = document.createElement("img");
+      img.src = url;
+      img.alt = `${label} of ${nameOf(icon)}`;
+      const cap = document.createElement("figcaption");
+      cap.textContent = `${label} (stored)`;
+      fig.append(img, cap);
+      wrap.append(fig);
+    }
+    return wrap;
+  }
   if (!t || state === "none") {
     wrap.classList.add("empty");
     wrap.append(para("Not traced yet", "hint small"));
@@ -1107,7 +1159,7 @@ function comparePair(icon: ReviewIcon, big: boolean): HTMLElement {
     const fig = document.createElement("figure");
     const img = document.createElement("img");
     img.src = url;
-    img.alt = `${label} of ${iconId(sheet!.id, icon)}`;
+    img.alt = `${label} of ${nameOf(icon)}`;
     img.draggable = false;
     const cap = document.createElement("figcaption");
     cap.textContent = label;
@@ -1154,7 +1206,7 @@ function drawGallery() {
     for (const icon of row.icons) {
       const card = document.createElement("button");
       card.type = "button";
-      card.className = `card ${traceState(icon)}${selected.includes(icon.key) ? " selected" : ""}`;
+      card.className = `card ${traceState(icon)} ${icon.status ?? "draft"}${selected.includes(icon.key) ? " selected" : ""}`;
       card.dataset.key = String(icon.key);
       card.append(comparePair(icon, false));
       const cap = document.createElement("span");
@@ -1193,4 +1245,354 @@ function yieldToPage(): Promise<void> {
     ch.port1.onmessage = () => resolve();
     ch.port2.postMessage(null);
   });
+}
+
+// ---- Storage (milestone 5, spec 3 steps 6 and 7, spec 8 and 9) ----
+
+interface SavedState {
+  version: 1;
+  savedAt: string;
+  settings: SplitSettings;
+  traceSettings: TraceSettings;
+  review: Review;
+}
+
+interface ServerIcon {
+  id: string;
+  status: IconStatus;
+  svg_key: string | null;
+}
+
+function nameOf(icon: ReviewIcon): string {
+  return iconName(review!, sheet!.id, icon);
+}
+
+async function api(path: string, init?: RequestInit): Promise<Response> {
+  const res = await fetch(`/api/import/${path}`, { credentials: "same-origin", ...init });
+  if (res.status === 401 || res.type === "opaqueredirect") throw new StorageError("Your sign-in has expired. Reload the page to sign in again.");
+  return res;
+}
+
+class StorageError extends Error {}
+
+async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await api(path, init);
+  const body = (await res.json().catch(() => ({}))) as T & { error?: string };
+  if (!res.ok) throw new StorageError(body.error ?? `Server answered ${res.status}`);
+  return body;
+}
+
+// Spec 8.3: a sheet already in the catalogue reopens where it was left.
+async function openFromServer(): Promise<boolean> {
+  storage = "checking";
+  renderStorage();
+  try {
+    const res = await api(`sheets/${sheet!.id}`);
+    if (res.status === 404) {
+      storage = "ready";
+      registered = false;
+      renderStorage();
+      return false;
+    }
+    if (!res.ok) throw new StorageError(`Server answered ${res.status}`);
+    const body = (await res.json()) as { sheet: { source_tool: string | null }; icons: ServerIcon[]; review: SavedState | null };
+    storage = "ready";
+    registered = true;
+    els.sourceTool.value = body.sheet.source_tool ?? "";
+    if (!body.review || body.review.version !== 1) {
+      renderStorage();
+      return false; // registered but never saved; start from a fresh split
+    }
+    const saved = body.review;
+    settings = { ...DEFAULT_SETTINGS, ...saved.settings };
+    lastSettings = { ...settings };
+    traceSettings = { ...DEFAULT_TRACE, ...saved.traceSettings };
+    upscaleChosen = true;
+    syncSettingsForm();
+    // The catalogue is the truth for what was approved or rejected.
+    const status = new Map(body.icons.map((i) => [i.id, i.status]));
+    let r = saved.review;
+    for (const icon of allIcons(r)) {
+      if (icon.savedId && status.has(icon.savedId)) r = replaceStatus(r, icon.key, status.get(icon.savedId)!);
+    }
+    review = r;
+    const icons = allIcons(r);
+    const n = (s: IconStatus) => icons.filter((i) => (i.status ?? "draft") === s).length;
+    setStatus(`Reopened this sheet as you left it: ${n("approved")} approved, ${n("rejected")} rejected, ${n("draft")} still to review.`);
+    renderStorage();
+    render();
+    void readTitles();
+    return true;
+  } catch (err) {
+    storage = "offline";
+    storageError = err instanceof Error ? err.message : String(err);
+    renderStorage();
+    return false;
+  }
+}
+
+function replaceStatus(r: Review, key: number, status: IconStatus): Review {
+  return {
+    ...r,
+    rows: r.rows.map((row) => ({ ...row, icons: row.icons.map((i) => (i.key === key ? { ...i, status } : i)) })),
+  };
+}
+
+// Register the sheet and store its PNG the first time something is saved.
+async function ensureRegistered() {
+  if (registered) return;
+  const icons = allIcons(review!);
+  await apiJson("sheets", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      id: sheet!.id,
+      filename: sheet!.filename,
+      width_px: sheet!.image.width,
+      height_px: sheet!.image.height,
+      rows_found: review!.rows.length,
+      icons_found: icons.length,
+      settings,
+      source_tool: els.sourceTool.value.trim() || null,
+    }),
+  });
+  await apiJson(`sheets/${sheet!.id}/file`, { method: "PUT", body: sheet!.bytes, headers: { "Content-Type": "image/png" } });
+  registered = true;
+  renderStorage();
+}
+
+// Keep the review state (boxes, tags, settings) on the server so the sheet can be reopened.
+let saveTimer: ReturnType<typeof setTimeout> | undefined;
+function scheduleSave() {
+  if (!registered || storage !== "ready") return;
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => void saveReview(), 1200);
+}
+
+async function saveReview() {
+  if (!registered || !review || !sheet) return;
+  const state: SavedState = { version: 1, savedAt: new Date().toISOString(), settings, traceSettings, review };
+  try {
+    await apiJson(`sheets/${sheet.id}/review`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(state) });
+    lastSaved = new Date();
+    renderStorage();
+  } catch (err) {
+    storageError = err instanceof Error ? err.message : String(err);
+    renderStorage();
+  }
+}
+
+function metaFor(icon: ReviewIcon, tags: IconTags) {
+  return {
+    row_index: icon.row,
+    col_index: icon.col,
+    category: tags.category,
+    subtype: tags.subtype,
+    scales: tags.scales,
+    kind: tags.kind,
+    facing: tags.facing,
+    width_px: traces.get(icon.key)!.width,
+    height_px: traces.get(icon.key)!.height,
+    anchor_x: Math.min(1, Math.max(0, icon.anchorX)),
+    anchor_y: Math.min(1, Math.max(0, icon.anchorY)),
+  };
+}
+
+function tagsOf(icon: ReviewIcon): IconTags {
+  const row = review!.rows.find((r) => r.index === icon.row)!;
+  return iconTags(row, icon, ocrFor(row) ?? "");
+}
+
+// Upload one icon's files and tags as a draft (spec 9: POST /icons/:id/files).
+async function uploadIcon(icon: ReviewIcon, withSvg: boolean) {
+  if (traceState(icon) !== "done") await traceOne(icon);
+  const t = traces.get(icon.key)!;
+  const tags = tagsOf(icon);
+  const id = nameOf(icon);
+  const form = new FormData();
+  form.append("png", new File([t.png], `${id}.png`, { type: "image/png" }));
+  if (withSvg) form.append("svg", new File([t.svg], `${id}.svg`, { type: "image/svg+xml" }));
+  form.append("meta", JSON.stringify(metaFor(icon, tags)));
+  await apiJson(`icons/${id}/files`, { method: "POST", body: form });
+  return { id, tags };
+}
+
+// Run tasks four at a time (spec 10), updating the progress bar as each finishes.
+async function inParallel<T>(items: T[], label: string, task: (item: T) => Promise<void>) {
+  let done = 0;
+  let next = 0;
+  els.progress.hidden = false;
+  els.progress.max = items.length;
+  els.progress.value = 0;
+  const worker = async () => {
+    while (next < items.length) {
+      const item = items[next++];
+      await task(item);
+      done++;
+      els.progress.value = done;
+      setStatus(`${label}: ${done} of ${items.length}.`);
+    }
+  };
+  try {
+    await Promise.all(Array.from({ length: Math.min(4, items.length) }, worker));
+  } finally {
+    els.progress.hidden = true;
+  }
+}
+
+function checkCategories(icons: ReviewIcon[]): boolean {
+  const missing = icons.find((i) => !tagsOf(i).category);
+  if (!missing) return true;
+  setStatus(`Row ${missing.row} has no category yet. Type one in the row tags before saving.`);
+  return false;
+}
+
+// Spec 3 step 6 and 7: approve or reject icons. Approved icons go to R2 (PNG and SVG) and
+// D1; rejected ones are recorded so the same cell is not imported again.
+async function decide(keys: number[], status: "approved" | "rejected") {
+  if (!review || busy) return;
+  const icons = keys.map((k) => findIcon(review!, k)).filter((i): i is ReviewIcon => !!i && !isLocked(i));
+  if (!icons.length) return setStatus("Those icons are already saved.");
+  if (storage !== "ready") return setStatus(storageError || "Storage is not available, so nothing can be saved.");
+  if (!checkCategories(icons)) return;
+  busy = true;
+  updateToolbar();
+  try {
+    await ensureRegistered();
+    const results: { key: number; id: string; tags: IconTags }[] = [];
+    await inParallel(icons, status === "approved" ? "Approving" : "Rejecting", async (icon) => {
+      const { id, tags } = await uploadIcon(icon, status === "approved");
+      await apiJson(`icons/${id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status }) });
+      results.push({ key: icon.key, id, tags });
+    });
+    applySaved(results, status);
+    setStatus(`${status === "approved" ? "Approved" : "Rejected"} ${results.length} ${results.length === 1 ? "icon" : "icons"} and saved ${results.length === 1 ? "it" : "them"}.`);
+    moveToNextDraft(keys[keys.length - 1]);
+  } catch (err) {
+    setStatus(`Saving failed: ${err instanceof Error ? err.message : err}. Nothing else was changed; try again.`);
+  } finally {
+    busy = false;
+    render();
+    await saveReview();
+  }
+}
+
+// Spec 9: approve every draft icon in a row in one go.
+async function approveRow(rowIndex: number) {
+  if (!review || busy) return;
+  const row = review.rows.find((r) => r.index === rowIndex);
+  const icons = row?.icons.filter((i) => !isLocked(i)) ?? [];
+  if (!icons.length) return setStatus(`Every icon in row ${rowIndex} is already saved.`);
+  if (storage !== "ready") return setStatus(storageError || "Storage is not available, so nothing can be saved.");
+  if (!checkCategories(icons)) return;
+  busy = true;
+  updateToolbar();
+  try {
+    await ensureRegistered();
+    const uploaded: { key: number; id: string; tags: IconTags }[] = [];
+    await inParallel(icons, `Uploading row ${rowIndex}`, async (icon) => {
+      const { id, tags } = await uploadIcon(icon, true);
+      uploaded.push({ key: icon.key, id, tags });
+    });
+    const res = await apiJson<{ icons: ServerIcon[] }>(`sheets/${sheet!.id}/approve-row`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ row_index: rowIndex }),
+    });
+    const approvedIds = new Set(res.icons.filter((i) => i.status === "approved").map((i) => i.id));
+    applySaved(uploaded.filter((u) => approvedIds.has(u.id)), "approved");
+    setStatus(`Approved row ${rowIndex}: ${uploaded.filter((u) => approvedIds.has(u.id)).length} icons saved.`);
+  } catch (err) {
+    setStatus(`Saving failed: ${err instanceof Error ? err.message : err}. Try again; icons already saved stay saved.`);
+  } finally {
+    busy = false;
+    render();
+    await saveReview();
+  }
+}
+
+// Mark icons as stored. Decisions live on the server, so the undo history (which could
+// otherwise bring back a box shape that no longer matches what was stored) is cleared.
+function applySaved(items: { key: number; id: string; tags: IconTags }[], status: IconStatus) {
+  let r = review!;
+  for (const it of items) r = markSaved(r, it.key, it.id, status, it.tags);
+  review = r;
+  if (items.length) {
+    undoStack = [];
+    redoStack = [];
+  }
+}
+
+function moveToNextDraft(fromKey: number) {
+  if (!review) return;
+  let k: number | undefined = fromKey;
+  for (let guard = 0; guard < 1000 && k !== undefined; guard++) {
+    k = neighbour(review, k, "right") ?? nextRowFirst(k);
+    const icon = k !== undefined ? findIcon(review, k) : undefined;
+    if (icon && !isLocked(icon)) {
+      selected = [icon.key];
+      return;
+    }
+  }
+}
+
+function nextRowFirst(key: number): number | undefined {
+  const icon = findIcon(review!, key);
+  const idx = review!.rows.findIndex((r) => r.index === icon?.row);
+  return review!.rows.slice(idx + 1).find((r) => r.icons.length)?.icons[0]?.key;
+}
+
+// Approve and reject buttons for the selected icon, or its stored state.
+function decisionBox(icon: ReviewIcon): HTMLElement {
+  const box = document.createElement("div");
+  box.className = `decision ${icon.status ?? "draft"}`;
+  if (icon.status === "approved" || icon.status === "rejected") {
+    box.append(para(icon.status === "approved" ? "Approved and saved to the library." : "Rejected. Recorded so this cell is not imported again.", "badge"));
+    box.append(para(`Saved as ${icon.savedId}. Stored icons are locked.`, "hint small"));
+    return box;
+  }
+  const a = button("Approve (A)", () => void decide([icon.key], "approved"));
+  a.classList.add("approve");
+  const r = button("Reject (R)", () => void decide([icon.key], "rejected"));
+  r.classList.add("reject");
+  a.disabled = r.disabled = busy || storage !== "ready";
+  box.append(a, r);
+  if (storage !== "ready") box.append(para(storageError || "Storage is not available.", "hint small"));
+  return box;
+}
+
+function approveRowButton(rowIndex: number): HTMLElement {
+  const row = review!.rows.find((r) => r.index === rowIndex)!;
+  const open = row.icons.filter((i) => !isLocked(i)).length;
+  const wrap = document.createElement("div");
+  wrap.className = "row-approve";
+  const approved = row.icons.filter((i) => i.status === "approved").length;
+  const rejected = row.icons.filter((i) => i.status === "rejected").length;
+  wrap.append(para(`${approved} approved, ${rejected} rejected, ${open} to review`, "hint small"));
+  if (open) {
+    const b = button(`Approve all ${open} in this row`, () => void approveRow(rowIndex));
+    b.classList.add("approve");
+    b.disabled = busy || storage !== "ready";
+    wrap.append(b);
+  }
+  return wrap;
+}
+
+function renderStorage() {
+  const s = els.storageState;
+  s.className = `storage-state ${storage}`;
+  if (storage === "checking") s.textContent = "Checking the library...";
+  else if (storage === "offline") s.textContent = `Not connected to the library: ${storageError}. You can review, but nothing will be saved.`;
+  else if (!registered) s.textContent = "New sheet. It is saved to the library when you approve or reject the first icon.";
+  else s.textContent = `Saved in the library${lastSaved ? `, last saved ${lastSaved.toLocaleTimeString()}` : ""}. Reopening this file later picks up where you left off.`;
+  els.sourceTool.disabled = registered;
+}
+
+// Stored files for locked icons, used when there is no local trace (after reopening).
+function storedUrls(icon: ReviewIcon): { png: string; svg: string } | null {
+  if (!icon.savedId) return null;
+  return {
+    png: `/api/import/files/icons/${icon.savedId}.png`,
+    svg: icon.status === "approved" ? `/api/import/files/icons/${icon.savedId}.svg` : "",
+  };
 }

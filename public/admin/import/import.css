@@ -192,3 +192,35 @@ button { font: inherit; cursor: pointer; }
 .card.selected { border-color: var(--focus); box-shadow: 0 0 0 2px color-mix(in srgb, var(--focus) 30%, transparent); }
 .card .pair img { height: 80px; }
 .card-id { font: 0.72rem ui-monospace, monospace; color: var(--faint); }
+
+:root { --ok: #2e7d32; --no: #9e2b25; }
+.library-bar { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; margin: 0 0 10px; }
+.storage-state { margin: 0; flex: 1 1 320px; font-size: 0.85rem; padding: 6px 10px; border-radius: 6px; background: var(--card); border: 1px solid var(--rule); }
+.storage-state.offline { border-color: var(--merge); color: var(--merge); }
+.storage-state.ready { border-color: color-mix(in srgb, var(--ok) 50%, var(--rule)); }
+.source-tool { display: flex; align-items: center; gap: 6px; font-size: 0.85rem; color: var(--faint); }
+.source-tool input { width: 260px; max-width: 60vw; padding: 4px 6px; font: inherit; color: var(--ink); border: 1px solid var(--rule); border-radius: 4px; background: #fff; }
+.source-tool input:disabled { background: transparent; border-color: transparent; }
+
+.k.approved { border-color: var(--ok); background: color-mix(in srgb, var(--ok) 25%, transparent); }
+.k.rejected { border-color: var(--no); background: repeating-linear-gradient(45deg, color-mix(in srgb, var(--no) 35%, transparent) 0 2px, transparent 2px 5px); }
+.box.approved { stroke: var(--ok); stroke-width: 2; fill: color-mix(in srgb, var(--ok) 14%, transparent); cursor: pointer; }
+.box.rejected { stroke: var(--no); stroke-width: 2; stroke-dasharray: 6 3; fill: color-mix(in srgb, var(--no) 14%, transparent); cursor: pointer; }
+
+.decision { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 10px; }
+.decision .ghost { margin: 0; }
+.ghost.approve { border-color: var(--ok); color: var(--ok); font-weight: 600; }
+.ghost.approve:hover:not(:disabled) { background: color-mix(in srgb, var(--ok) 12%, transparent); }
+.ghost.reject { border-color: var(--no); color: var(--no); }
+.ghost:disabled { opacity: 0.45; cursor: default; }
+.decision .badge { margin: 0; width: 100%; font-weight: 600; font-size: 0.85rem; }
+.decision.approved .badge { color: var(--ok); }
+.decision.rejected .badge { color: var(--no); }
+.decision .hint { width: 100%; margin: 0; }
+.row-approve { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--rule); }
+.row-approve p { margin: 0 0 6px; }
+
+.card.approved { border-color: var(--ok); }
+.card.rejected { border-color: var(--no); opacity: 0.6; }
+.card.approved .card-id::after { content: "  approved"; color: var(--ok); }
+.card.rejected .card-id::after { content: "  rejected"; color: var(--no); }
