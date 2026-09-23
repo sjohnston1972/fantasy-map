@@ -147,12 +147,12 @@ describe("land and sea", () => {
 });
 
 describe("pipeline and render", () => {
-  it("builds a default 1600 by 2400 map quickly and identically twice", () => {
+  it("builds a default map quickly and identically twice", () => {
     const a = generate(DEFAULT_SETTINGS);
     const b = generate(DEFAULT_SETTINGS);
     expect(hash(a.height.heights)).toBe(hash(b.height.heights));
     const total = Object.values(a.timings).reduce((x, y) => x + y, 0);
-    // About 0.4 s on its own; the limit leaves room for the other test files running in
+    // About 1.5 s on its own (terrain to symbols); the limit leaves room for other test files in
     // parallel. The spec budget for a whole finished map is 10 s.
     expect(total).toBeLessThan(5000);
   });
