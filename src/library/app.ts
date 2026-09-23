@@ -27,6 +27,7 @@ const els = {
   kind: $<HTMLSelectElement>("#f-kind"),
   count: $<HTMLElement>("#count"),
   size: $<HTMLInputElement>("#f-size"),
+  rebuild: $<HTMLButtonElement>("#rebuild"),
 };
 
 let icons: CatalogueIcon[] = [];
@@ -44,6 +45,24 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && selected) select(null);
 });
 void load();
+
+// The map draws with symbol packs, not with the library directly: after approving icons,
+// rebuild the packs so the map picks them up.
+els.rebuild.addEventListener("click", async () => {
+  els.rebuild.disabled = true;
+  setStatus("Rebuilding the symbol packs...");
+  try {
+    const res = await fetch("/api/import/packs/build", { method: "POST", credentials: "same-origin" });
+    const body = (await res.json()) as { manifest?: { packs: Record<string, string> }; error?: string };
+    if (!res.ok || !body.manifest) throw new Error(body.error ?? `The server answered ${res.status}.`);
+    const packs = Object.values(body.manifest.packs);
+    setStatus(`Rebuilt ${packs.length} symbol packs: ${packs.join(", ")}. New maps use them straight away.`);
+  } catch (err) {
+    setStatus(`Could not rebuild the packs. ${err instanceof Error ? err.message : err}`);
+  } finally {
+    els.rebuild.disabled = false;
+  }
+});
 
 async function load() {
   setStatus("Loading the library...");

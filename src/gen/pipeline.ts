@@ -53,6 +53,7 @@ function keepClear(t: Settlements, cols: number, rows: number): Uint8Array {
     }
   };
   for (const road of t.roads) for (const i of road.cells) mark(i, 1);
-  for (const p of t.places) mark(p.cell, p.tier === "capital" ? 5 : p.tier === "town" ? 4 : 2);
+  for (const p of t.places) mark(p.cell, p.tier === "capital" ? 9 : p.tier === "town" ? 7 : 5);
+  for (const l of t.landmarks) mark(l.cell, 4);
   return out;
 }

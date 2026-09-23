@@ -47,10 +47,10 @@ export function placeSymbols(hy: Hydrology, cl: Climate, s: MapSettings, blocked
 
   // Order matters: big features claim their ground first, small ones fill in around them.
   const rules: Rule[] = [
-    { role: "mountain", spacing: 26, size: [46, 86], aspect: 0.72, where: (i) => (b[i] === BIOME.mountain ? 0.35 + e[i] * 0.6 : 0) },
-    { role: "hill", spacing: 30, size: [26, 38], aspect: 0.45, where: (i) => (b[i] !== BIOME.mountain && e[i] > 0.3 ? 0.5 : 0) },
-    { role: "conifer", spacing: 9, size: [8, 12], aspect: 1.9, where: (i) => (b[i] === BIOME.forest && (cl.temperature[i] < 0.45 || e[i] > 0.4) ? 0.85 : b[i] === BIOME.tundra ? 0.08 : 0) },
-    { role: "broadleaf", spacing: 10, size: [10, 14], aspect: 1.15, where: (i) => (b[i] === BIOME.forest && !(cl.temperature[i] < 0.45 || e[i] > 0.4) ? 0.85 : 0) },
+    { role: "mountain", spacing: 30, size: [58, 104], aspect: 0.72, where: (i) => (b[i] === BIOME.mountain ? 0.35 + e[i] * 0.6 : 0) },
+    { role: "hill", spacing: 34, size: [32, 46], aspect: 0.5, where: (i) => (b[i] !== BIOME.mountain && e[i] > 0.3 ? 0.5 : 0) },
+    { role: "conifer", spacing: 11, size: [11, 15], aspect: 1.6, where: (i) => (b[i] === BIOME.forest && (cl.temperature[i] < 0.45 || e[i] > 0.4) ? 0.85 : b[i] === BIOME.tundra ? 0.08 : 0) },
+    { role: "broadleaf", spacing: 12, size: [13, 18], aspect: 1.05, where: (i) => (b[i] === BIOME.forest && !(cl.temperature[i] < 0.45 || e[i] > 0.4) ? 0.85 : 0) },
     { role: "reeds", spacing: 14, size: [10, 14], aspect: 0.8, where: (i) => (b[i] === BIOME.marsh ? 0.6 : 0) },
     { role: "dune", spacing: 34, size: [26, 40], aspect: 0.35, where: (i) => (b[i] === BIOME.desert ? 0.5 : 0) },
     { role: "cactus", spacing: 22, size: [6, 9], aspect: 1.6, where: (i) => (b[i] === BIOME.desert ? 0.12 : 0) },

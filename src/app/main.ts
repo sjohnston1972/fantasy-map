@@ -3,6 +3,7 @@
 
 import { generate, type GeneratedMap } from "../gen/pipeline";
 import { renderRelief } from "../gen/render";
+import { toInkSet, type InkSet, type InkSymbol } from "../gen/inkset";
 import { renderSvg } from "../gen/svg";
 import { randomSeed } from "../gen/rng";
 import { cleanSettings, DEFAULT_SETTINGS, type MapSettings } from "../gen/settings";
@@ -31,6 +32,7 @@ const els = {
 
 let settings: MapSettings = { ...DEFAULT_SETTINGS };
 let current: GeneratedMap | null = null;
+let ink: InkSet | undefined; // hand-inked symbols, once the packs have loaded
 
 // Redraw once for a burst of changes while a slider is dragged. A message-channel hop is
 // used rather than an animation frame, which browsers pause in background tabs.
@@ -40,6 +42,22 @@ let pendingDraw: () => void = () => {};
 tick.port1.onmessage = () => pendingDraw();
 syncForm();
 draw();
+void loadInk();
+
+// Symbol packs load in the background (spec: "symbol packs load in the background"). The
+// map is drawn at once with placeholder shapes, then redrawn with the ink symbols.
+async function loadInk() {
+  try {
+    const manifest = (await (await fetch("/api/packs/manifest.json")).json()) as { packs: Record<string, string> };
+    const packs = await Promise.all(
+      Object.values(manifest.packs).map(async (name) => (await (await fetch(`/api/packs/${name}`)).json()) as { role: string; symbols: InkSymbol[] }),
+    );
+    ink = toInkSet(packs);
+    if (current) paint(current);
+  } catch (err) {
+    console.warn("Symbol packs did not load; keeping placeholder symbols.", err);
+  }
+}
 
 // Generate draws a new map. If a different seed has been typed in, that seed is drawn
 // instead, so a map someone liked can be brought back.
@@ -100,7 +118,7 @@ function paint(map: GeneratedMap) {
   current = map;
   const { width, height } = map.settings;
   els.mapBox.style.aspectRatio = `${width} / ${height}`;
-  els.map.innerHTML = renderSvg({ width, height, water: map.water, symbols: map.symbols, towns: map.towns });
+  els.map.innerHTML = renderSvg({ width, height, water: map.water, symbols: map.symbols, towns: map.towns, ink });
   const svg = els.map.querySelector("svg")!;
   svg.removeAttribute("width");
   svg.removeAttribute("height");

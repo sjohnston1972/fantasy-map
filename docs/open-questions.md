@@ -155,3 +155,22 @@ can only be reopened by dropping its file again on the Import page.
   gets a bridge (spec acceptance).
 - **Farmland** is laid around each settlement on grassland and woodland; trees give way to
   fields, and no symbol stands on a road.
+
+## Map milestone 7 decisions (catalogue and packs)
+
+- **Icons were imported by script, approved by rule** (Steven's choice): rows whose OCR'd
+  title matches a map role were imported; icons were approved when the splitter raised no
+  flags, they clear the sheet edge and trace to a real drawing; flagged ones were rejected.
+  182 approved, 14 rejected, across 11 sheets. Each icon's subtype is its map role.
+- **No Access service token**: the API token could not create one, so the import script
+  talks to R2 and D1 directly through Cloudflare's API, running the Worker's own import code
+  (scripts/cf-storage.ts). No change to Access was needed.
+- **Rate limiting** uses the Workers rate-limiting binding (120 requests a minute per
+  visitor on /api/packs and /api/catalogue). The API token cannot manage zone rules; a zone
+  rule can still be added in the dashboard if wanted.
+- **Packs** are versioned JSON files (packs/<role>-v<n>.json) with a manifest; a rebuild
+  only bumps roles whose icons changed. The map draws immediately with placeholders and
+  swaps in ink symbols when the packs arrive. Each placement has a white knockout behind it
+  so overlapping symbols stay readable.
+- **Placement layout does not depend on the packs**: symbols are fitted inside the boxes
+  the placement stage chose, so the same seed gives the same layout whatever icons exist.

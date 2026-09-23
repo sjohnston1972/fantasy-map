@@ -31,3 +31,4 @@ public/app.js.map
 # Local copies of the icon sheets; the loose PNGs are committed
 example artifacts/*.zip
 example artifacts/fantasy_map_icon_sheets/
+.tmp/

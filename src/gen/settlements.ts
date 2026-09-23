@@ -36,8 +36,16 @@ export interface Bridge {
   angle: number; // direction of the road across the river, radians
 }
 
+export interface Landmark {
+  id: number;
+  cell: number;
+  x: number;
+  y: number;
+}
+
 export interface Settlements {
   places: Settlement[];
+  landmarks: Landmark[]; // ruins, forts, temples: points of interest away from towns
   roads: Road[];
   bridges: Bridge[];
   roadCells: Uint8Array; // 1 where a road runs
@@ -184,7 +192,29 @@ export function settle(hy: Hydrology, cl: Climate, s: MapSettings): Settlements 
       }
     }
   }
-  return { places, roads, bridges, roadCells, farmland };
+  // 6. Landmarks: a few ruins, forts or temples out in the country, away from towns and
+  //    roads, preferring rising ground.
+  const landmarks: Landmark[] = [];
+  const wantLandmarks = Math.min(8, 3 + Math.floor(townCount / 2));
+  const candidates: number[] = [];
+  for (let i = 0; i < n; i++) {
+    if (water[i] || riverFlow[i] > 0 || roadCells[i] || farmland[i]) continue;
+    const b = cl.biome[i];
+    if (b === BIOME.marsh || b === BIOME.mountain) continue;
+    const c = i % cols;
+    const r = (i - c) / cols;
+    if (c < 10 || r < 10 || c >= cols - 10 || r >= rows - 10) continue;
+    if (cl.elevation[i] > 0.15 || next() < 0.02) candidates.push(i);
+  }
+  for (let tries = 0; tries < 4000 && landmarks.length < wantLandmarks && candidates.length; tries++) {
+    const i = candidates[Math.floor(next() * candidates.length)];
+    const x = ((i % cols) + 0.5) * cellW;
+    const y = (Math.floor(i / cols) + 0.5) * cellH;
+    const clear = (px: number, py: number, d: number) => Math.hypot(px - x, py - y) > d * scale;
+    if (!places.every((p) => clear(p.x, p.y, 120)) || !landmarks.every((l) => clear(l.x, l.y, 160))) continue;
+    landmarks.push({ id: landmarks.length, cell: i, x, y });
+  }
+  return { places, landmarks, roads, bridges, roadCells, farmland };
 }
 
 // A* over the grid. Steep, wet, wooded or high ground costs more; running along an

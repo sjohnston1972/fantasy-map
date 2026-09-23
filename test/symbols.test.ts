@@ -5,6 +5,7 @@ import { WATER_SEA } from "../src/gen/hydrology";
 import { generate } from "../src/gen/pipeline";
 import { DEFAULT_SETTINGS } from "../src/gen/settings";
 import { MAX_OVERLAP, overlapShare, type PlacedSymbol } from "../src/gen/symbols";
+import { toInkSet } from "../src/gen/inkset";
 import { renderSvg } from "../src/gen/svg";
 
 const SEEDS = [482913, 77, 2024, 5, 31337];
@@ -131,5 +132,38 @@ describe("contours", () => {
 
   it("simplifies a straight line to its ends", () => {
     expect(simplify([[0, 0], [1, 0], [2, 0], [3, 0], [4, 0]], 0.1)).toEqual([[0, 0], [4, 0]]);
+  });
+});
+
+describe("SVG render with ink symbols", () => {
+  const m = maps[0];
+  const drawing = (id: string) => ({ id, w: 40, h: 30, anchorX: 0.5, anchorY: 1, facing: "none", viewBox: "0 0 40 30", body: '<path fill="#000" d="M0 0h40v30z"/>' });
+  const ink = toInkSet([
+    { role: "mountain", symbols: [drawing("m1"), drawing("m2")] },
+    { role: "conifer", symbols: [drawing("c1")] },
+    { role: "town", symbols: [drawing("t1")] },
+  ]);
+  const svg = renderSvg({ width: m.settings.width, height: m.settings.height, water: m.water, symbols: m.symbols, towns: m.towns, ink });
+
+  it("defines each drawing once and places it by reference", () => {
+    expect((svg.match(/<symbol /g) ?? []).length).toBeLessThanOrEqual(4);
+    expect(svg).toContain("<defs>");
+    const mountains = m.symbols.filter((s) => s.role === "mountain").length;
+    expect((svg.match(/<use /g) ?? []).length).toBeGreaterThanOrEqual(mountains * 2);
+  });
+
+  it("draws a white knockout behind each ink placement", () => {
+    const uses = svg.match(/<use [^>]*>/g) ?? [];
+    const white = uses.filter((u) => u.includes('color="#fff"')).length;
+    expect(white).toBe(uses.length / 2);
+  });
+
+  it("switches pack drawings to currentColor so one drawing serves both passes", () => {
+    expect(ink.mountain![0].body).toContain('fill="currentColor"');
+  });
+
+  it("still draws placeholders for roles with no drawings", () => {
+    expect(svg).toContain('data-role="reeds"');
+    expect(svg).not.toMatch(/NaN|undefined/);
   });
 });

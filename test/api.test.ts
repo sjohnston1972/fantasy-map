@@ -37,14 +37,14 @@ const put = (path: string, body: unknown) => call(path, { method: "PUT", body: J
 
 const PNG_1x1 = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==", "base64");
 const SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 4 4" width="4" height="4"><path fill="#000" d="M0 0h4v4z"/></svg>`;
-const meta = (row: number, col: number) =>
-  JSON.stringify({ row_index: row, col_index: col, category: "cacti", subtype: "", scales: ["region"], kind: "point", facing: "none", width_px: 4, height_px: 4, anchor_x: 0.5, anchor_y: 1 });
+const meta = (row: number, col: number, subtype = "") =>
+  JSON.stringify({ row_index: row, col_index: col, category: "cacti", subtype, scales: ["region"], kind: "point", facing: "none", width_px: 4, height_px: 4, anchor_x: 0.5, anchor_y: 1 });
 
-async function uploadIcon(id: string, row: number, col: number, withSvg = true, svg = SVG) {
+async function uploadIcon(id: string, row: number, col: number, withSvg = true, svg = SVG, subtype = "") {
   const form = new FormData();
   form.append("png", new File([PNG_1x1], "i.png", { type: "image/png" }));
   if (withSvg) form.append("svg", new File([svg], "i.svg", { type: "image/svg+xml" }));
-  form.append("meta", meta(row, col));
+  form.append("meta", meta(row, col, subtype));
   // Encode the multipart body here, so its boundary header survives the trip into the simulator.
   const encoded = new Request("http://encode", { method: "POST", body: form });
   return call(`icons/${id}/files`, {
@@ -180,5 +180,64 @@ describe("sign-in check", () => {
 
   it("leaves the public health check open", async () => {
     expect((await mf.dispatchFetch("https://maps.clydeford.net/api/health")).status).toBe(200);
+  });
+});
+
+describe("symbol packs and the public catalogue", () => {
+  const PUBLIC = "https://maps.clydeford.net/api";
+  const publicGet = (path: string) => mf.dispatchFetch(`${PUBLIC}/${path}`);
+
+  it("builds one versioned pack per role from approved icons", async () => {
+    for (const col of [1, 2]) {
+      await uploadIcon(`${SHEET_ID}-r7-c${col}`, 7, col, true, SVG, "mountain");
+      await put(`icons/${SHEET_ID}-r7-c${col}`, { status: "approved" });
+    }
+    const res = await post("packs/build", {});
+    const { manifest } = (await res.json()) as { manifest: { packs: Record<string, string> } };
+    expect(manifest.packs.mountain).toBe("mountain-v1.json");
+  });
+
+  it("serves the manifest and packs to anyone, without signing in", async () => {
+    const m = await publicGet("packs/manifest.json");
+    expect(m.status).toBe(200);
+    const { packs } = (await m.json()) as { packs: Record<string, string> };
+    const p = await publicGet(`packs/${packs.mountain}`);
+    expect(p.status).toBe(200);
+    expect(p.headers.get("cache-control")).toContain("immutable");
+    const pack = (await p.json()) as { role: string; symbols: { body: string; viewBox: string }[] };
+    expect(pack.role).toBe("mountain");
+    expect(pack.symbols).toHaveLength(2);
+    expect(pack.symbols[0].viewBox).toBe("0 0 4 4");
+    expect(pack.symbols[0].body).toContain("<path");
+    expect(pack.symbols[0].body).not.toContain("<svg");
+  });
+
+  it("keeps the version when nothing changed, and bumps it when icons change", async () => {
+    const again = (await (await post("packs/build", {})).json()) as { manifest: { packs: Record<string, string> } };
+    expect(again.manifest.packs.mountain).toBe("mountain-v1.json");
+    await uploadIcon(`${SHEET_ID}-r7-c3`, 7, 3, true, SVG, "mountain");
+    await put(`icons/${SHEET_ID}-r7-c3`, { status: "approved" });
+    const bumped = (await (await post("packs/build", {})).json()) as { manifest: { packs: Record<string, string> } };
+    expect(bumped.manifest.packs.mountain).toBe("mountain-v2.json");
+    // The old version is still there for pages that cached the old manifest.
+    expect((await publicGet("packs/mountain-v1.json")).status).toBe(200);
+  });
+
+  it("answers catalogue questions by role and scale", async () => {
+    const res = await publicGet("catalogue?role=mountain&scale=region");
+    const { icons } = (await res.json()) as { icons: { role: string }[] };
+    expect(icons).toHaveLength(3);
+    expect(icons.every((i) => i.role === "mountain")).toBe(true);
+    expect((await publicGet("catalogue?role=../x")).status).toBe(400);
+  });
+
+  it("keeps pack building behind sign-in", async () => {
+    const res = await mf.dispatchFetch("https://maps.clydeford.net/api/import/packs/build", { method: "POST" });
+    expect(res.status).toBe(401);
+  });
+
+  it("refuses odd pack names", async () => {
+    expect((await publicGet("packs/..%2Fsheets%2Fx.json")).status).toBe(404);
+    expect((await publicGet("packs/mountain.json")).status).toBe(404);
   });
 });

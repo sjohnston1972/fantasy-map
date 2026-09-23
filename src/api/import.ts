@@ -11,6 +11,9 @@
 //   PUT  /icons/:id                  change tags, anchor or status of a draft icon
 //   GET  /icons?category=&status=    library listing
 //   GET  /files/<key>                read a stored sheet or icon file back
+//   POST /packs/build                rebuild the symbol packs from approved icons (see packs.ts)
+
+import { buildPacks } from "./packs";
 
 export interface ImportEnv {
   DB: D1Database;
@@ -50,6 +53,7 @@ export async function handleImport(request: Request, env: ImportEnv, path: strin
       if (parts.length === 2 && method === "PUT") return await updateIcon(request, env, id);
     }
     if (parts[0] === "files" && method === "GET") return await getFile(env, parts.slice(1).join("/"));
+    if (parts[0] === "packs" && parts[1] === "build" && method === "POST") return json({ manifest: await buildPacks(env) });
     return error(404, "not found");
   } catch (err) {
     if (err instanceof HttpError) return error(err.status, err.message);

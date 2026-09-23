@@ -5,6 +5,7 @@
 
 import { outlines, simplify, smoothLoop, type Pt } from "./contours";
 import { WATER_LAKE, WATER_SEA, type Hydrology } from "./hydrology";
+import { pickSymbol, type InkSet, type InkSymbol } from "./inkset";
 import type { Settlements } from "./settlements";
 import type { PlacedSymbol } from "./symbols";
 
@@ -14,6 +15,7 @@ export interface SvgInput {
   water: Hydrology;
   symbols: PlacedSymbol[];
   towns?: Settlements;
+  ink?: InkSet; // hand-inked symbols; placeholders are drawn for any role without them
 }
 
 const INK = "#1a1714";
@@ -24,6 +26,7 @@ export function renderSvg(m: SvgInput): string {
   const sy = H / hy.rows;
   const toMap = (loop: Pt[]): Pt[] => loop.map(([x, y]) => [x * sx, y * sy]);
   const parts: string[] = [];
+  const defs = new InkDefs();
   parts.push(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" data-generator="ink-fantasy-maps">`);
   parts.push(`<rect width="${W}" height="${H}" fill="#fff"/>`);
 
@@ -56,7 +59,7 @@ export function renderSvg(m: SvgInput): string {
     const px = W / 1600; // line weights are set for a 1600 px wide map
     const widths = pts.map((_, k) => {
       const f = r.flow[Math.min(r.flow.length - 1, Math.floor((k / pts.length) * r.flow.length))];
-      return Math.min(3.4, 0.7 + 0.4 * Math.log2(Math.max(1, f / minFlow))) * px;
+      return Math.min(2.6, 0.6 + 0.3 * Math.log2(Math.max(1, f / minFlow))) * px;
     });
     parts.push(`<path d="${ribbon(pts, widths)}"/>`);
   }
@@ -72,6 +75,13 @@ export function renderSvg(m: SvgInput): string {
     });
     parts.push(`<path d="${roadPaths.join("")}" fill="none" stroke="${INK}" stroke-width="${(1.9 * px).toFixed(2)}" stroke-dasharray="${(7 * px).toFixed(1)} ${(4.5 * px).toFixed(1)}" stroke-linecap="round"/>`);
     for (const b of m.towns.bridges) {
+      const bridge = pickSymbol(m.ink, "bridge", ((b.cell * 2654435761) >>> 0) / 4294967296);
+      if (bridge) {
+        // Drawn upright over the crossing, centred on the river.
+        const bw = 24 * px;
+        parts.push(`<g data-role="bridge">${defs.use(bridge, b.x, b.y + (bw * bridge.h) / bridge.w / 2, bw, bw, false, W)}</g>`);
+        continue;
+      }
       const deg = (b.angle * 180) / Math.PI;
       const L = 9 * px;
       const Wd = 5 * px;
@@ -85,13 +95,27 @@ export function renderSvg(m: SvgInput): string {
 
   // Symbols, back to front.
   parts.push(`<g stroke="${INK}" stroke-linejoin="round" stroke-linecap="round">`);
-  m.symbols.forEach((s, k) => parts.push(placeholder(s, k)));
+  m.symbols.forEach((s, k) => {
+    const icon = pickSymbol(m.ink, s.role, s.variant);
+    parts.push(icon ? `<g data-sym="${k}" data-role="${s.role}">${defs.use(icon, s.x, s.y, s.w, s.h, s.flip, W)}</g>` : placeholder(s, k));
+  });
   parts.push(`</g>`);
 
   // Settlements: dots for now (spec build order, milestone 5); the capital gets a ring.
   if (m.towns) {
     const px = W / 1600;
+    for (const l of m.towns.landmarks) {
+      const icon = pickSymbol(m.ink, "landmark", ((l.cell * 2246822519) >>> 0) / 4294967296);
+      const lw = 30 * px;
+      parts.push(icon ? `<g data-landmark="${l.id}">${defs.use(icon, l.x, l.y, lw, lw, false, W)}</g>` : `<g data-landmark="${l.id}"><path d="M${(l.x - 4 * px).toFixed(1)} ${l.y.toFixed(1)}V${(l.y - 14 * px).toFixed(1)}H${(l.x + 4 * px).toFixed(1)}V${l.y.toFixed(1)}Z" fill="#fff" stroke="${INK}" stroke-width="${(1.2 * px).toFixed(2)}"/></g>`);
+    }
     for (const p of m.towns.places) {
+      const townIcon = pickSymbol(m.ink, p.tier, ((p.cell * 2654435761) >>> 0) / 4294967296);
+      if (townIcon) {
+        const tw = (p.tier === "capital" ? 74 : p.tier === "town" ? 56 : 40) * px;
+        parts.push(`<g data-town="${p.id}" data-tier="${p.tier}">${defs.use(townIcon, p.x, p.y + tw * 0.12, tw, tw, false, W)}</g>`);
+        continue;
+      }
       const r = (p.tier === "capital" ? 10 : p.tier === "town" ? 7.5 : 5) * px;
       const ring = p.tier === "capital" ? `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="${(r + 4 * px).toFixed(1)}" fill="none" stroke="${INK}" stroke-width="${(1.1 * px).toFixed(2)}"/>` : "";
       parts.push(`<g data-town="${p.id}" data-tier="${p.tier}"><circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="${r.toFixed(1)}" fill="${p.tier === "village" ? "#fff" : INK}" stroke="${INK}" stroke-width="${(1.3 * px).toFixed(2)}"/>${ring}</g>`);
@@ -102,7 +126,45 @@ export function renderSvg(m: SvgInput): string {
   parts.push(`<rect x="6" y="6" width="${W - 12}" height="${H - 12}" fill="none" stroke="${INK}" stroke-width="3"/>`);
   parts.push(`<rect x="14" y="14" width="${W - 28}" height="${H - 28}" fill="none" stroke="${INK}" stroke-width="1"/>`);
   parts.push(`</svg>`);
+  // Drawings used on this map, defined once and reused by reference.
+  parts.splice(2, 0, defs.markup());
   return parts.join("");
+}
+
+// Each hand-inked drawing is defined once in <defs> and placed with <use>. Every placement
+// is drawn twice: a white outline first (the knockout, so symbols in front hide the lines
+// of those behind, as an engraver would leave them out), then the ink.
+class InkDefs {
+  private ids = new Map<string, string>();
+  private symbols: string[] = [];
+  private ref(icon: InkSymbol): string {
+    let id = this.ids.get(icon.id);
+    if (!id) {
+      id = `i${this.ids.size}`;
+      this.ids.set(icon.id, id);
+      this.symbols.push(`<symbol id="${id}" viewBox="${icon.viewBox}">${icon.body}</symbol>`);
+    }
+    return id;
+  }
+  // Fit the drawing inside a w by h box standing on (x, y), with its anchor on that point.
+  use(icon: InkSymbol, x: number, y: number, w: number, h: number, flip: boolean, mapWidth: number): string {
+    const id = this.ref(icon);
+    const k = Math.min(w / icon.w, h / icon.h);
+    const dw = icon.w * k;
+    const dh = icon.h * k;
+    const left = x - icon.anchorX * dw;
+    const top = y - icon.anchorY * dh;
+    const f = (v: number) => v.toFixed(1);
+    // The traced paths are drawn at a tenth of their own units (potrace), so the knockout
+    // stroke is set in those units: about 1.3 map pixels wide.
+    const halo = (1.3 * (mapWidth / 1600)) / (0.1 * k);
+    const mirror = flip ? ` transform="translate(${f(2 * x)} 0) scale(-1 1)"` : "";
+    const at = `href="#${id}" x="${f(left)}" y="${f(top)}" width="${f(dw)}" height="${f(dh)}"`;
+    return `<g${mirror}><use ${at} color="#fff" stroke="#fff" stroke-width="${halo.toFixed(1)}" stroke-linejoin="round"/><use ${at} color="${INK}" stroke="none"/></g>`;
+  }
+  markup(): string {
+    return this.symbols.length ? `<defs>${this.symbols.join("")}</defs>` : "";
+  }
 }
 
 // Simple stand-in drawings, one per role, anchored at the middle of the base.
