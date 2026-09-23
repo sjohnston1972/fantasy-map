@@ -6,13 +6,17 @@ A free web app that procedurally generates black-and-white, hand-inked fantasy m
 - `docs/sheet-import-spec.md`: admin tool that turns symbol sheets into library icons
 - `example artifacts/`: reference symbol sheets and maps used for testing
 - `src/worker.ts`: the Cloudflare Worker (API routes under `/api/`)
+- `src/import/split.ts`: splits a symbol sheet into rows, titles and icon boxes
+- `src/import/app.ts`: the Sheet Import page at `/admin/import/`
+- `test/`: automated checks, run with `npm test`
 - `public/`: static files served to the browser
 
 ## Running it
 
 ```
 npm install
-npm run dev      # local preview at http://localhost:8787
+npm run dev      # local preview (builds first) at http://localhost:8787
+npm test         # run the automated checks
 npm run deploy   # publish to Cloudflare
 ```
 

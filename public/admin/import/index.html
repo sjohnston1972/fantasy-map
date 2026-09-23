@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sheet Import</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IM+Fell+English+SC&family=IM+Fell+English:ital@0;1&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="import.css">
+  <script type="module" src="app.js"></script>
+</head>
+<body>
+  <header>
+    <h1>Sheet Import</h1>
+    <p class="tag">Drop a symbol sheet to split it into icons. Everything happens in your browser.</p>
+  </header>
+
+  <section class="intake">
+    <label id="drop" class="drop">
+      <input id="file" type="file" accept="image/png,image/jpeg,image/webp">
+      <strong>Drop a sheet here</strong>
+      <span>or click to choose a PNG</span>
+    </label>
+    <button id="sample" type="button" class="ghost">Try the desert sample</button>
+  </section>
+
+  <p id="status" class="status" role="status" aria-live="polite"></p>
+
+  <div id="workspace" class="workspace" hidden>
+    <div id="summary" class="summary"></div>
+
+    <div class="layout">
+      <aside class="panel">
+        <h2>Rows</h2>
+        <ol id="rows" class="rows"></ol>
+      </aside>
+
+      <div class="sheet-wrap">
+        <ul class="legend" aria-label="Box colours">
+          <li><i class="k icon"></i>Icon</li>
+          <li><i class="k title"></i>Title strip</li>
+          <li><i class="k merge"></i>Possible merge</li>
+          <li><i class="k split"></i>Possible split</li>
+          <li><i class="k extra"></i>Split candidate</li>
+          <li><i class="k anchor"></i>Anchor</li>
+        </ul>
+        <div id="stage" class="stage">
+          <img id="sheet" alt="Uploaded symbol sheet">
+          <svg id="overlay" class="overlay" preserveAspectRatio="none" aria-hidden="true"></svg>
+        </div>
+      </div>
+
+      <aside class="panel">
+        <h2>Settings</h2>
+        <form id="settings" class="settings"></form>
+        <button id="reset" type="button" class="ghost small">Reset to defaults</button>
+        <h2>Selected icon</h2>
+        <div id="detail" class="detail"></div>
+      </aside>
+    </div>
+  </div>
+</body>
+</html>

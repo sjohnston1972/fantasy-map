@@ -3,6 +3,7 @@
   "name": "fantasy-map",
   "main": "src/worker.ts",
   "compatibility_date": "2026-09-01",
+  "build": { "command": "npm run build" },
   "assets": {
     "directory": "public",
     "binding": "ASSETS",

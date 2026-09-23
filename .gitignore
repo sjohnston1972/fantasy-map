@@ -16,3 +16,8 @@ dist/
 Thumbs.db
 .vscode/
 .idea/
+
+# Built by npm run build
+public/admin/import/app.js
+public/admin/import/app.js.map
+public/admin/import/sample-desert.png
