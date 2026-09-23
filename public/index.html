@@ -7,40 +7,54 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=IM+Fell+English+SC&family=IM+Fell+English:ital@0;1&display=swap" rel="stylesheet">
-  <style>
-    :root { --ink: #1a1714; --paper: #f6f1e6; --faint: #6b6358; }
-    * { box-sizing: border-box; }
-    html, body { height: 100%; margin: 0; }
-    body {
-      background: var(--paper);
-      color: var(--ink);
-      font-family: "IM Fell English", Georgia, serif;
-      display: grid;
-      place-items: center;
-      padding: 16px;
-    }
-    main {
-      text-align: center;
-      border: 2px solid var(--ink);
-      outline: 1px solid var(--ink);
-      outline-offset: 6px;
-      padding: 48px 40px;
-      max-width: 560px;
-    }
-    h1 {
-      font-family: "IM Fell English SC", Georgia, serif;
-      font-weight: 400;
-      font-size: clamp(2rem, 7vw, 3.2rem);
-      letter-spacing: 0.04em;
-      margin: 0 0 12px;
-    }
-    p { margin: 0; font-style: italic; color: var(--faint); font-size: 1.15rem; }
-  </style>
+  <link rel="stylesheet" href="app.css">
+  <script type="module" src="app.js"></script>
 </head>
 <body>
-  <main>
+  <header>
     <h1>Ink Fantasy Maps</h1>
-    <p>Here be dragons. The cartographer is still sharpening the quill.</p>
-  </main>
+    <p class="tag">Here be dragons, eventually. For now, the lie of the land.</p>
+  </header>
+
+  <div class="layout">
+    <form id="settings" class="panel" aria-label="Map settings">
+      <label class="field">
+        <span>Seed</span>
+        <span class="seed-row">
+          <input id="seed" type="number" min="0" max="999999999" step="1" inputmode="numeric" required>
+          <button id="dice" type="button" class="icon-btn" title="Random seed" aria-label="Random seed"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="3" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="8" cy="8" r="1.6" fill="currentColor"/><circle cx="16" cy="8" r="1.6" fill="currentColor"/><circle cx="12" cy="12" r="1.6" fill="currentColor"/><circle cx="8" cy="16" r="1.6" fill="currentColor"/><circle cx="16" cy="16" r="1.6" fill="currentColor"/></svg></button>
+        </span>
+        <small>The same seed always draws the same map.</small>
+      </label>
+
+      <label class="field">
+        <span>Shape</span>
+        <select id="shape">
+          <option value="portrait">Portrait (1600 by 2400)</option>
+          <option value="landscape">Landscape (2400 by 1600)</option>
+          <option value="square">Square (2000 by 2000)</option>
+        </select>
+      </label>
+
+      <label class="field">
+        <span>Sea level <output id="sea-out" for="sea"></output></span>
+        <input id="sea" type="range" min="5" max="90" step="1">
+      </label>
+
+      <label class="field">
+        <span>Mountains <output id="mountains-out" for="mountains"></output></span>
+        <input id="mountains" type="range" min="0" max="100" step="1">
+      </label>
+
+      <button type="submit" class="generate">Generate</button>
+
+      <p class="note">Early preview: the terrain is shown as grey relief, lit from the top left. Rivers, towns, ink symbols and labels arrive in later stages.</p>
+    </form>
+
+    <figure class="stage">
+      <canvas id="map" role="img"></canvas>
+      <figcaption id="caption" aria-live="polite"></figcaption>
+    </figure>
+  </div>
 </body>
 </html>

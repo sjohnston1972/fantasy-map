@@ -28,6 +28,19 @@ await build({
   logLevel: "warning",
 });
 
+// The public map page.
+await build({
+  entryPoints: ["src/app/main.ts"],
+  outfile: "public/app.js",
+  bundle: true,
+  format: "esm",
+  target: "es2022",
+  platform: "browser",
+  minify: true,
+  sourcemap: true,
+  logLevel: "warning",
+});
+
 copyFileSync("example artifacts/desert.png", "public/admin/import/sample-desert.png");
 
 const ocr = "public/admin/import/ocr";

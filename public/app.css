@@ -1,0 +1,42 @@
+:root {
+  --ink: #1a1714;
+  --paper: #f6f1e6;
+  --card: #fffdf8;
+  --rule: #d8cfbd;
+  --faint: #6b6358;
+  --focus: #2563eb;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font: 15px/1.45 system-ui, sans-serif;
+  padding: 16px clamp(16px, 3vw, 32px) 32px;
+}
+h1 { font-family: "IM Fell English SC", Georgia, serif; font-weight: 400; font-size: clamp(1.8rem, 5vw, 2.6rem); margin: 0; letter-spacing: 0.02em; }
+.tag { margin: 2px 0 16px; color: var(--faint); font-family: "IM Fell English", Georgia, serif; font-style: italic; font-size: 1.05rem; }
+:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+
+.layout { display: grid; grid-template-columns: 280px minmax(0, 1fr); gap: 20px; align-items: start; }
+@media (max-width: 760px) { .layout { grid-template-columns: minmax(0, 1fr); } }
+
+.panel { background: var(--card); border: 1px solid var(--rule); border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 14px; position: sticky; top: 16px; }
+@media (max-width: 760px) { .panel { position: static; } }
+.field { display: flex; flex-direction: column; gap: 4px; }
+.field > span:first-child { font-weight: 600; font-size: 0.9rem; display: flex; justify-content: space-between; }
+.field output { font-weight: 400; color: var(--faint); }
+.field small { color: var(--faint); font-size: 0.78rem; }
+.seed-row { display: flex; gap: 6px; }
+input[type="number"], select { width: 100%; padding: 6px 8px; font: inherit; color: var(--ink); background: #fff; border: 1px solid var(--rule); border-radius: 5px; }
+input[type="range"] { width: 100%; accent-color: var(--ink); }
+.icon-btn { flex: none; width: 40px; display: grid; place-items: center; font-size: 1.3rem; line-height: 1; border: 1.5px solid var(--ink); border-radius: 5px; background: var(--card); color: var(--ink); cursor: pointer; }
+.icon-btn:hover { background: #efe6d2; }
+.generate { padding: 9px 14px; font: inherit; font-weight: 600; letter-spacing: 0.02em; border: 0; border-radius: 6px; background: var(--ink); color: var(--paper); cursor: pointer; }
+.generate:hover { background: #3a332c; }
+.note { margin: 0; font-size: 0.8rem; color: var(--faint); border-top: 1px solid var(--rule); padding-top: 10px; }
+
+.stage { margin: 0; display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.stage canvas { display: block; width: auto; height: auto; max-width: 100%; max-height: calc(100vh - 140px); background: #fff; border: 2px solid var(--ink); outline: 1px solid var(--ink); outline-offset: 4px; image-rendering: auto; }
+@media (max-width: 760px) { .stage canvas { max-height: none; width: 100%; } }
+.stage figcaption { font-size: 0.85rem; color: var(--faint); text-align: center; }

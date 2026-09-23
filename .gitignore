@@ -25,3 +25,5 @@ public/admin/import/ocr/
 public/admin/import/potrace/
 public/admin/library/app.js
 public/admin/library/app.js.map
+public/app.js
+public/app.js.map

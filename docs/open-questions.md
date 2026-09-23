@@ -97,3 +97,17 @@ rows) and filters in the browser. Fine for Phase 1's target of 300 to 500 symbol
 paging to `GET /api/import/icons` if the catalogue grows past about 1000. The page
 reads only; it cannot edit tags or un-approve an icon (not in the spec). A stored sheet
 can only be reopened by dropping its file again on the Import page.
+
+## Map milestone 2 decisions
+
+- **Sea level means share of water.** Heights are rescaled so that exactly `sea_level` of
+  the map lies below it: 0.35 gives 35% water on every seed. The spec says "anything below
+  a set height becomes water"; this keeps that literally true and makes the slider
+  predictable.
+- **Region maps have sea around the edges.** The ground sinks towards the frame and rises
+  towards the middle, so a region map is a stretch of land with coast, like the example
+  maps. Change this if some regions should run off the edge of the page.
+- **Mountain density** (listed in the spec's settings panel but not in its share-code
+  example) is included in the settings object; milestone 10 should add it to the code.
+- **Speed.** A default 1600 by 2400 map takes about 0.4 s for this stage (height map at
+  one value per 4 by 4 pixels).

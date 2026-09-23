@@ -5,6 +5,8 @@ A free web app that procedurally generates black-and-white, hand-inked fantasy m
 - `docs/fantasy-map.md`: main product spec, phases and build order
 - `docs/sheet-import-spec.md`: admin tool that turns symbol sheets into library icons
 - `example artifacts/`: reference symbol sheets and maps used for testing
+- `src/gen/`: the map generator, one module per pipeline stage (seeded, runs in the browser)
+- `src/app/main.ts`: the public map page at `/`
 - `src/worker.ts`: the Cloudflare Worker (API routes under `/api/`)
 - `src/api/import.ts`: the sheet import API (R2 files, D1 catalogue)
 - `src/api/auth.ts`: checks the Cloudflare Access sign-in on admin API calls
