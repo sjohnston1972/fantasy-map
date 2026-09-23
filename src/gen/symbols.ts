@@ -12,7 +12,7 @@ import type { Hydrology } from "./hydrology";
 import { rng, stageSeed } from "./rng";
 import type { MapSettings } from "./settings";
 
-export const ROLES = ["mountain", "hill", "conifer", "broadleaf", "reeds", "dune", "cactus", "grass", "snow"] as const;
+export const ROLES = ["mountain", "hill", "conifer", "broadleaf", "reeds", "dune", "cactus", "grass", "snow", "field"] as const;
 export type Role = (typeof ROLES)[number];
 
 export interface PlacedSymbol {
@@ -55,6 +55,7 @@ export function placeSymbols(hy: Hydrology, cl: Climate, s: MapSettings, blocked
     { role: "dune", spacing: 34, size: [26, 40], aspect: 0.35, where: (i) => (b[i] === BIOME.desert ? 0.5 : 0) },
     { role: "cactus", spacing: 22, size: [6, 9], aspect: 1.6, where: (i) => (b[i] === BIOME.desert ? 0.12 : 0) },
     { role: "snow", spacing: 28, size: [12, 18], aspect: 0.4, where: (i) => (b[i] === BIOME.tundra ? 0.25 : 0) },
+    { role: "field", spacing: 17, size: [14, 20], aspect: 0.55, where: (i) => (b[i] === BIOME.farmland ? 0.8 : 0) },
     { role: "grass", spacing: 26, size: [7, 10], aspect: 0.7, where: (i) => (b[i] === BIOME.grassland ? 0.12 : 0) },
   ];
 

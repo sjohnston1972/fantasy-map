@@ -5,6 +5,7 @@ import { climate, type Climate } from "./climate";
 import { generateHeightMap, type HeightMap } from "./heightmap";
 import { hydrology, type Hydrology } from "./hydrology";
 import { landAndSea, type LandSea } from "./landsea";
+import { settle, type Settlements } from "./settlements";
 import { cleanSettings, type MapSettings } from "./settings";
 import { placeSymbols, type PlacedSymbol } from "./symbols";
 
@@ -14,6 +15,7 @@ export interface GeneratedMap {
   landSea: LandSea;
   water: Hydrology;
   climate: Climate;
+  towns: Settlements;
   symbols: PlacedSymbol[];
   timings: Record<string, number>; // milliseconds per stage
 }
@@ -31,6 +33,26 @@ export function generate(input: Partial<MapSettings>): GeneratedMap {
   const landSea = time("land and sea", () => landAndSea(height));
   const water = time("rivers and lakes", () => hydrology(height, landSea));
   const clim = time("climate and biomes", () => climate(water, height.seaLevel, settings));
-  const symbols = time("symbols", () => placeSymbols(water, clim, settings));
-  return { settings, height, landSea, water, climate: clim, symbols, timings };
+  const towns = time("towns and roads", () => settle(water, clim, settings));
+  const symbols = time("symbols", () => placeSymbols(water, clim, settings, keepClear(towns, water.cols, water.rows)));
+  return { settings, height, landSea, water, climate: clim, towns, symbols, timings };
+}
+
+// Ground no symbol should stand on: roads (and the cells beside them) and the settlements.
+function keepClear(t: Settlements, cols: number, rows: number): Uint8Array {
+  const out = new Uint8Array(cols * rows);
+  const mark = (i: number, radius: number) => {
+    const c = i % cols;
+    const r = Math.floor(i / cols);
+    for (let dr = -radius; dr <= radius; dr++) {
+      for (let dc = -radius; dc <= radius; dc++) {
+        const cc = c + dc;
+        const rr = r + dr;
+        if (cc >= 0 && rr >= 0 && cc < cols && rr < rows) out[rr * cols + cc] = 1;
+      }
+    }
+  };
+  for (const road of t.roads) for (const i of road.cells) mark(i, 1);
+  for (const p of t.places) mark(p.cell, p.tier === "capital" ? 5 : p.tier === "town" ? 4 : 2);
+  return out;
 }

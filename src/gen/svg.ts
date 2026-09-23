@@ -5,6 +5,7 @@
 
 import { outlines, simplify, smoothLoop, type Pt } from "./contours";
 import { WATER_LAKE, WATER_SEA, type Hydrology } from "./hydrology";
+import type { Settlements } from "./settlements";
 import type { PlacedSymbol } from "./symbols";
 
 export interface SvgInput {
@@ -12,6 +13,7 @@ export interface SvgInput {
   height: number;
   water: Hydrology;
   symbols: PlacedSymbol[];
+  towns?: Settlements;
 }
 
 const INK = "#1a1714";
@@ -60,10 +62,41 @@ export function renderSvg(m: SvgInput): string {
   }
   parts.push(`</g>`);
 
+  // Roads: dashed lines (placeholder style for milestone 5), with bridges over rivers.
+  if (m.towns) {
+    const px = W / 1600;
+    const roadPaths = m.towns.roads.map((road) => {
+      let pts = road.cells.map((i) => [((i % hy.cols) + 0.5) * sx, (Math.floor(i / hy.cols) + 0.5) * sy] as Pt);
+      for (let k = 0; k < 3; k++) pts = smoothLine(pts);
+      return "M" + simplify(pts, 0.3).map(([x, y]) => `${x.toFixed(1)} ${y.toFixed(1)}`).join("L");
+    });
+    parts.push(`<path d="${roadPaths.join("")}" fill="none" stroke="${INK}" stroke-width="${(1.9 * px).toFixed(2)}" stroke-dasharray="${(7 * px).toFixed(1)} ${(4.5 * px).toFixed(1)}" stroke-linecap="round"/>`);
+    for (const b of m.towns.bridges) {
+      const deg = (b.angle * 180) / Math.PI;
+      const L = 9 * px;
+      const Wd = 5 * px;
+      parts.push(
+        `<g transform="translate(${b.x.toFixed(1)} ${b.y.toFixed(1)}) rotate(${deg.toFixed(1)})" data-role="bridge">` +
+          `<rect x="${(-L / 2).toFixed(1)}" y="${(-Wd / 2).toFixed(1)}" width="${L.toFixed(1)}" height="${Wd.toFixed(1)}" fill="#fff" stroke="none"/>` +
+          `<path d="M${(-L / 2).toFixed(1)} ${(-Wd / 2).toFixed(1)}H${(L / 2).toFixed(1)}M${(-L / 2).toFixed(1)} ${(Wd / 2).toFixed(1)}H${(L / 2).toFixed(1)}" stroke="${INK}" stroke-width="${(1.2 * px).toFixed(2)}"/></g>`,
+      );
+    }
+  }
+
   // Symbols, back to front.
   parts.push(`<g stroke="${INK}" stroke-linejoin="round" stroke-linecap="round">`);
   m.symbols.forEach((s, k) => parts.push(placeholder(s, k)));
   parts.push(`</g>`);
+
+  // Settlements: dots for now (spec build order, milestone 5); the capital gets a ring.
+  if (m.towns) {
+    const px = W / 1600;
+    for (const p of m.towns.places) {
+      const r = (p.tier === "capital" ? 10 : p.tier === "town" ? 7.5 : 5) * px;
+      const ring = p.tier === "capital" ? `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="${(r + 4 * px).toFixed(1)}" fill="none" stroke="${INK}" stroke-width="${(1.1 * px).toFixed(2)}"/>` : "";
+      parts.push(`<g data-town="${p.id}" data-tier="${p.tier}"><circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="${r.toFixed(1)}" fill="${p.tier === "village" ? "#fff" : INK}" stroke="${INK}" stroke-width="${(1.3 * px).toFixed(2)}"/>${ring}</g>`);
+    }
+  }
 
   // A double-ruled border, as on old engraved maps.
   parts.push(`<rect x="6" y="6" width="${W - 12}" height="${H - 12}" fill="none" stroke="${INK}" stroke-width="3"/>`);
@@ -100,6 +133,9 @@ function placeholder(s: PlacedSymbol, k: number): string {
       return g(`<path d="M${n(x)} ${n(y)}V${n(y - h)}M${n(x)} ${n(y - h * 0.45)}H${n(x - w / 2)}V${n(y - h * 0.75)}M${n(x)} ${n(y - h * 0.6)}H${n(x + w / 2)}V${n(y - h * 0.85)}" fill="none" stroke-width="0.9"/>`);
     case "grass":
       return g(`<path d="M${n(x - w / 2)} ${n(y - h * 0.6)}L${n(x - w * 0.2)} ${n(y)}M${n(x)} ${n(y - h)}V${n(y)}M${n(x + w / 2)} ${n(y - h * 0.6)}L${n(x + w * 0.2)} ${n(y)}" fill="none" stroke-width="0.7"/>`);
+    case "field":
+      // A little ploughed field: an outline with furrows.
+      return g(`<path d="M${n(x - w / 2)} ${n(y)}L${n(x - w * 0.35)} ${n(y - h)}H${n(x + w * 0.45)}L${n(x + w / 2)} ${n(y)}Z" fill="#fff" stroke-width="0.6"/><path d="M${n(x - w * 0.25)} ${n(y - h * 0.15)}L${n(x - w * 0.15)} ${n(y - h * 0.85)}M${n(x)} ${n(y - h * 0.15)}L${n(x + w * 0.05)} ${n(y - h * 0.85)}M${n(x + w * 0.25)} ${n(y - h * 0.15)}L${n(x + w * 0.25)} ${n(y - h * 0.85)}" fill="none" stroke-width="0.4"/>`);
     case "snow":
       return g(`<path d="M${n(x - w / 2)} ${n(y)}H${n(x - w * 0.1)}M${n(x + w * 0.05)} ${n(y - h * 0.5)}H${n(x + w / 2)}" fill="none" stroke-width="0.7"/>`);
   }

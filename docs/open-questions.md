@@ -140,3 +140,18 @@ can only be reopened by dropping its file again on the Import page.
 - **Symbol rules:** big features first (mountains, hills), then trees, reeds, dunes, snow
   and grass; no two overlap by more than 20% of the smaller one; none stand in water or on
   a river; drawn back to front.
+
+## Map milestone 5 decisions (towns and roads)
+
+- **Town count** (spec setting) is the number of towns including the capital; villages add
+  about two per town. Best sites score flat, low, fertile ground by rivers (bigger rivers
+  better), the coast, lakes, and above all river mouths.
+- **Settlements go on the largest landmass only.** Roads cannot reach islands without
+  ferries, and the spec requires roads to connect every town. Island towns (with a ferry
+  line) could come later.
+- **Roads** join each settlement to the network by the cheapest route (A* over steepness
+  and ground type), reusing existing roads so they merge into a network. They never enter
+  the sea or a lake, never slip diagonally between river cells, and every river crossing
+  gets a bridge (spec acceptance).
+- **Farmland** is laid around each settlement on grassland and woodland; trees give way to
+  fields, and no symbol stands on a road.

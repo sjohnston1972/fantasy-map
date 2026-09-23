@@ -91,7 +91,8 @@ function draw() {
     els.map.classList.add("fresh");
     const ms = Math.round(performance.now() - t0);
     const w = map.water;
-    els.caption.textContent = `Seed ${map.settings.seed}: ${w.rivers.length} rivers, ${w.lakes} ${w.lakes === 1 ? "lake" : "lakes"}, ${map.symbols.length} symbols. Generated in ${ms} ms.`;
+    const t = map.towns;
+    els.caption.textContent = `Seed ${map.settings.seed}: ${t.places.length} settlements, ${t.roads.length} roads, ${t.bridges.length} bridges, ${w.rivers.length} rivers, ${w.lakes} ${w.lakes === 1 ? "lake" : "lakes"}. Generated in ${ms} ms.`;
   };
 }
 
@@ -99,7 +100,7 @@ function paint(map: GeneratedMap) {
   current = map;
   const { width, height } = map.settings;
   els.mapBox.style.aspectRatio = `${width} / ${height}`;
-  els.map.innerHTML = renderSvg({ width, height, water: map.water, symbols: map.symbols });
+  els.map.innerHTML = renderSvg({ width, height, water: map.water, symbols: map.symbols, towns: map.towns });
   const svg = els.map.querySelector("svg")!;
   svg.removeAttribute("width");
   svg.removeAttribute("height");
