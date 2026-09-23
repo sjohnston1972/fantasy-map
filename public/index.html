@@ -4,9 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Ink Fantasy Maps</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=IM+Fell+English+SC&family=IM+Fell+English:ital@0;1&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="fonts/fonts.css">
   <link rel="stylesheet" href="app.css">
   <script type="module" src="app.js"></script>
 </head>
@@ -48,13 +46,34 @@
 
       <button type="submit" class="generate">Generate a new map</button>
 
-      <p class="note">Early preview: mountains, forests, towns and the rest are drawn with hand-inked symbols once they have loaded. Place names come next.</p>
+      <div class="exports" role="group" aria-labelledby="export-title">
+        <span id="export-title" class="group-title">Save the map</span>
+        <button type="button" id="export-svg" class="plain">SVG (any size)</button>
+        <button type="button" id="export-png" class="plain">PNG for screen</button>
+        <button type="button" id="export-a3" class="plain">PNG for A3 print (300 dpi)</button>
+        <output id="export-status" aria-live="polite"></output>
+      </div>
     </form>
 
     <figure class="stage">
+      <div class="toolbar">
+        <button type="button" id="edit-mode" class="plain" aria-pressed="false" aria-controls="edit-tools">Edit the map</button>
+        <div id="edit-tools" class="edit-tools" hidden>
+          <button type="button" id="swap" class="plain" title="Swap to another drawing (S)">Swap</button>
+          <button type="button" id="delete" class="plain" title="Remove (Delete)">Delete</button>
+          <button type="button" id="undo" class="plain" title="Undo (Ctrl+Z)">Undo</button>
+          <form id="rename" class="rename" hidden>
+            <label for="label-text">Wording</label>
+            <input id="label-text" type="text" maxlength="60" autocomplete="off">
+            <button type="submit" class="plain">Rename</button>
+          </form>
+          <p id="edit-hint" class="hint" aria-live="polite"></p>
+          <p class="hint keys">Keys: N picks the next item, arrows nudge, S swaps, Delete removes, Ctrl+Z undoes.</p>
+        </div>
+      </div>
       <div class="map-frame">
         <div id="map-box" class="map-box">
-          <div id="map" class="map"></div>
+          <div id="map" class="map" tabindex="0" aria-label="Map. Switch on editing to pick and move items."></div>
           <canvas id="relief" class="relief" hidden aria-hidden="true"></canvas>
         </div>
       </div>

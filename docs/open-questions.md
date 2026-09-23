@@ -190,3 +190,24 @@ can only be reopened by dropping its file again on the Import page.
   largest towns.
 - **Text width is estimated** from the typeface's average letter width, so the generator
   gives the same layout everywhere (browser, tests, scripts).
+
+## Map milestone 9 decisions (editing and export)
+
+- **Edits sit on top of the map** as a list of changes (moved, deleted, swapped drawing,
+  new wording), not written into it. The generator stays deterministic and undo is just the
+  previous list. Edits belong to one map: regenerating or changing a setting clears them.
+- **Edit mode is a button** ("Edit the map"), so on a tablet a drag scrolls the page until
+  the visitor chooses to edit. Picking: click or tap an item, or press N (Shift+N goes back).
+  Drag or arrow keys move it, S swaps the drawing, Delete removes, Ctrl+Z undoes. Labels
+  get a wording box; an empty name deletes the label.
+- **Share links carry the settings only, not edits** (spec: "maps shared by seed code").
+  Open question: should a later version also pack small edit lists into the link?
+- **The ground layer is drawn once per map** and reused while editing, so an edit redraws
+  only the symbols and lettering.
+- **Fonts are self-hosted** (IM Fell by Igino Marini, SIL Open Font Licence, via
+  @fontsource) instead of Google Fonts. Saved SVG files carry the regular and italic faces
+  inside them (about 120 KB), so they look right on any machine.
+- **PNG sizes:** screen is the map's own size (1600 by 2263); A3 at 300 dpi is 3508 by
+  4961 (landscape swapped). Open question: some phones (older iOS Safari) cap canvases at
+  about 16.7 million pixels, just under A3 at 300 dpi; there the A3 PNG may fail with a
+  message, and the SVG is the fallback.

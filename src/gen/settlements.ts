@@ -21,6 +21,7 @@ export interface Settlement {
   y: number;
   coastal: boolean;
   onRiver: boolean;
+  variant?: number; // drawing chosen by the user (editing); otherwise picked by position
 }
 
 export interface Road {
@@ -34,6 +35,8 @@ export interface Bridge {
   x: number;
   y: number;
   angle: number; // direction of the road across the river, radians
+  variant?: number;
+  index?: number; // position in the original list, kept through edits
 }
 
 export interface Landmark {
@@ -41,6 +44,7 @@ export interface Landmark {
   cell: number;
   x: number;
   y: number;
+  variant?: number;
 }
 
 export interface Settlements {

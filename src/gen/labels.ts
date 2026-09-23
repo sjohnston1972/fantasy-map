@@ -47,6 +47,7 @@ export interface Emblem {
   w: number;
   variant: number;
   town: number;
+  index?: number; // position in the original list, kept through edits
 }
 
 export interface Labelling {

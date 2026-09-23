@@ -27,6 +27,7 @@ public/admin/library/app.js
 public/admin/library/app.js.map
 public/app.js
 public/app.js.map
+public/fonts/
 
 # Local copies of the icon sheets; the loose PNGs are committed
 example artifacts/*.zip

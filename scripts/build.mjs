@@ -63,3 +63,21 @@ writeFileSync(
   "potrace.js is esm-potrace-wasm 0.5.1, unmodified, licensed GPL-2.0 (see LICENSE.txt).\n" +
     "Source code: https://github.com/tomayac/esm-potrace-wasm (built from Potrace, http://potrace.sourceforge.net/).\n",
 );
+
+// The map typeface (IM Fell by Igino Marini, SIL Open Font Licence), served from
+// this site rather than a font service, and embedded into exported SVG files.
+mkdirSync("public/fonts", { recursive: true });
+const fonts = [
+  ["im-fell-english", "latin-400-normal", "IM Fell English", "normal"],
+  ["im-fell-english", "latin-400-italic", "IM Fell English", "italic"],
+  ["im-fell-english-sc", "latin-400-normal", "IM Fell English SC", "normal"],
+];
+let css = "";
+for (const [pkg, variant, family, style] of fonts) {
+  const file = `${pkg}-${variant}.woff2`;
+  copyFileSync(`node_modules/@fontsource/${pkg}/files/${file}`, `public/fonts/${file}`);
+  css += `@font-face { font-family: "${family}"; font-style: ${style}; font-weight: 400; font-display: swap; src: url(${file}) format("woff2"); }
+`;
+}
+writeFileSync("public/fonts/fonts.css", css);
+copyFileSync("node_modules/@fontsource/im-fell-english/LICENSE", "public/fonts/LICENSE.txt");

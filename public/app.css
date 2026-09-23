@@ -38,7 +38,7 @@ input[type="range"] { width: 100%; accent-color: var(--ink); }
 
 .stage { margin: 0; display: flex; flex-direction: column; align-items: center; gap: 8px; }
 /* The map box takes its shape from the map (set from script) and fits the window height. */
-.map-frame { display: flex; justify-content: center; width: 100%; height: calc(100vh - 110px); }
+.map-frame { display: flex; justify-content: center; width: 100%; height: calc(100vh - 150px); }
 .map-box { position: relative; height: 100%; max-width: 100%; background: #fff; box-shadow: 0 1px 6px rgba(0,0,0,0.15); }
 .map, .map svg { display: block; width: 100%; height: 100%; }
 .relief { position: absolute; inset: 0; width: 100%; height: 100%; mix-blend-mode: multiply; opacity: 0.55; pointer-events: none; }
@@ -50,3 +50,21 @@ input[type="range"] { width: 100%; accent-color: var(--ink); }
 .map.fresh { animation: ink-in 0.4s ease-out; }
 @keyframes ink-in { from { opacity: 0.25; } to { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .map.fresh { animation: none; } }
+
+/* Editing and export. */
+.plain { padding: 6px 10px; font: inherit; font-size: 0.9rem; color: var(--ink); background: var(--card); border: 1.5px solid var(--ink); border-radius: 5px; cursor: pointer; }
+.plain:hover:not(:disabled) { background: #efe6d2; }
+.plain:disabled { opacity: 0.4; cursor: default; }
+.plain[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
+.exports { display: flex; flex-direction: column; gap: 6px; border-top: 1px solid var(--rule); padding-top: 12px; }
+.group-title { font-weight: 600; font-size: 0.9rem; }
+.exports output { font-size: 0.8rem; color: var(--faint); min-height: 1.2em; }
+.toolbar { width: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.edit-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; flex: 1; }
+.edit-tools[hidden], .rename[hidden] { display: none; }
+.rename { display: flex; align-items: center; gap: 6px; }
+.rename input { padding: 5px 8px; font: inherit; border: 1px solid var(--rule); border-radius: 5px; min-width: 12em; }
+.hint { margin: 0; font-size: 0.82rem; color: var(--faint); flex-basis: 100%; }
+.map.editing { touch-action: none; cursor: crosshair; }
+.map.editing [data-key] { cursor: grab; }
+.map [data-key].selected { filter: drop-shadow(0 0 2px var(--focus)) drop-shadow(0 0 2px var(--focus)); }
