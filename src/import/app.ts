@@ -2,7 +2,10 @@
 // then correct the boxes by hand (milestone 2). Everything runs in the browser;
 // nothing is sent to the server yet.
 
-import { DEFAULT_SETTINGS, iconId, makeInk, split, type Box, type Ink, type SplitSettings } from "./split";
+import { createWorker, PSM } from "tesseract.js";
+import type Tesseract from "tesseract.js";
+import { cleanCategory, prepareTitle, TITLE_CHARS } from "./ocr";
+import { DEFAULT_SETTINGS, iconId, makeInk, split, type Box, type Facing, type Ink, type SplitSettings } from "./split";
 import {
   allIcons,
   deleteIcons,
@@ -13,10 +16,20 @@ import {
   mergeIcons,
   neighbour,
   resizeIcon,
-  setTitleText,
+  clearIconTag,
+  iconTags,
+  inheritedTags,
+  setIconTags,
+  setRowTags,
   splitIcon,
+  SCALES,
+  type IconTags,
+  type Kind,
   type Review,
   type ReviewIcon,
+  type ReviewRow,
+  type RowTags,
+  type Scale,
 } from "./review";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -62,6 +75,7 @@ const els = {
   settings: $<HTMLFormElement>("#settings"),
   reset: $<HTMLButtonElement>("#reset"),
   detail: $<HTMLElement>("#detail"),
+  rowTags: $<HTMLElement>("#row-tags"),
   status: $<HTMLElement>("#status"),
   merge: $<HTMLButtonElement>("#tool-merge"),
   split: $<HTMLButtonElement>("#tool-split"),
@@ -165,14 +179,15 @@ function resplit() {
   pending = setTimeout(() => {
     const result = split(sheet!.image, settings);
     splitMs = result.ms;
-    const next = fromSplit(result);
-    // Keep typed row titles when the rows still line up.
+    const next = fromSplit(result, ink());
+    // Keep row tags when the rows still line up.
     if (review && review.rows.length === next.rows.length) {
-      next.rows.forEach((row, i) => (row.titleText = review!.rows[i].titleText));
+      next.rows.forEach((row, i) => (row.tags = review!.rows[i].tags));
     }
     selected = []; // box keys start again from 1, so an old selection would point at the wrong box
     commit(next, lastSettings ?? settings);
     lastSettings = { ...settings };
+    void readTitles();
     setStatus(`Split into ${result.rows.length} rows and ${result.iconCount} icons.${undoStack.length ? " Undo brings back the previous boxes." : ""}`);
   }, 30);
 }
@@ -259,7 +274,7 @@ function select(keys: number[], scroll = false) {
   selected = keys;
   if (splitMode && keys.length !== 1) setSplitMode(false);
   drawOverlay();
-  showDetail();
+  renderTags();
   updateToolbar();
   if (scroll && keys.length) els.overlay.querySelector(`[data-key="${keys[0]}"]`)?.scrollIntoView({ block: "nearest", behavior: "smooth" });
 }
@@ -290,6 +305,11 @@ function onKey(e: KeyboardEvent) {
   if (e.key === "Delete" || e.key === "Backspace") {
     e.preventDefault();
     return doDelete();
+  }
+  if (e.key === "Enter") {
+    // Spec 10: Enter opens the tag panel for the selected box, or the row's tags.
+    e.preventDefault();
+    return (document.getElementById(selected.length === 1 ? "it-category" : "rt-category") as HTMLInputElement | null)?.focus();
   }
   if (e.key === "m" || e.key === "M") return doMerge();
   if (e.key === "s" || e.key === "S") return setSplitMode(!splitMode);
@@ -403,8 +423,7 @@ function render() {
   );
   if (mismatched) els.summary.append(stat("Check", `${mismatched} rows`, `not ${settings.expectedPerRow} icons`, true));
   drawOverlay();
-  drawRowList();
-  showDetail();
+  renderTags();
   updateToolbar();
 }
 
@@ -430,7 +449,11 @@ function drawOverlay() {
   svg.replaceChildren();
   const px = imagePerScreenPx();
   for (const row of review.rows) {
-    if (row.title) svg.append(rect(row.title, "title", `Row ${row.index} title`));
+    if (row.title) {
+      const t = rect(row.title, "title", `Row ${row.index} title`);
+      t.dataset.row = String(row.index);
+      svg.append(t);
+    }
     for (const icon of row.icons) {
       const id = iconId(sheet.id, icon);
       for (const extra of icon.extras) svg.append(rect(extra, "extra", `Mark left out of ${id}`));
@@ -491,21 +514,20 @@ function rect(b: Box, kind: string, label: string) {
 }
 
 function drawRowList() {
-  if (!review) return;
-  // Keep focus in a title box while the list is rebuilt.
-  const focused = document.activeElement instanceof HTMLInputElement ? document.activeElement.dataset.row : undefined;
+  if (!review || !sheet) return;
   els.rows.replaceChildren();
+  const current = currentRow();
   for (const row of review.rows) {
     const li = document.createElement("li");
-    li.className = mismatch(row.icons.length) || !row.title ? "row warn" : "row";
+    li.className = `row${mismatch(row.icons.length) || !row.title ? " warn" : ""}${row.index === current ? " current" : ""}`;
     const head = document.createElement("div");
     head.className = "row-head";
     const num = document.createElement("button");
     num.type = "button";
     num.className = "row-num";
     num.textContent = `Row ${row.index}`;
-    num.title = "Select the first box in this row";
-    num.addEventListener("click", () => row.icons[0] && select([row.icons[0].key], true));
+    num.title = "Show this row's tags";
+    num.addEventListener("click", () => selectRow(row.index));
     const count = document.createElement("span");
     count.textContent = `${row.icons.length} icons${mismatch(row.icons.length) ? `, expected ${settings.expectedPerRow}` : ""}`;
     head.append(num, count);
@@ -517,30 +539,60 @@ function drawRowList() {
       c.setAttribute("aria-label", `Detected title for row ${row.index}`);
       li.append(c);
     } else {
-      const p = document.createElement("p");
-      p.className = "missing";
-      p.textContent = "No title found";
-      li.append(p);
+      li.append(para("No title found", "missing"));
     }
-    const label = document.createElement("label");
-    label.className = "title-edit";
-    const span = document.createElement("span");
-    span.textContent = "Title";
-    const input = document.createElement("input");
-    input.type = "text";
-    input.value = row.titleText;
-    input.placeholder = "type the row title";
-    input.dataset.row = String(row.index);
-    input.addEventListener("change", () => {
-      const text = input.value.trim();
-      if (review && text !== row.titleText) commit(setTitleText(review, row.index, text));
-    });
-    input.addEventListener("keydown", (e) => e.key === "Enter" && input.blur());
-    label.append(span, input);
-    li.append(label);
+    const cat = document.createElement("p");
+    cat.className = "row-cat";
+    const text = rowCategory(row);
+    cat.textContent = text || "no category yet";
+    if (!text) cat.classList.add("empty");
+    const src = document.createElement("span");
+    src.className = "source";
+    src.textContent = row.tags.category !== null ? "typed" : ocrState(row) === "pending" ? "reading..." : text ? "read from title" : "";
+    cat.append(" ", src);
+    li.append(cat);
     els.rows.append(li);
   }
-  if (focused) els.rows.querySelector<HTMLInputElement>(`input[data-row="${focused}"]`)?.focus();
+}
+
+// The row whose tags are shown: the row of the selected box, or the last row clicked.
+let chosenRow = 1;
+function currentRow(): number {
+  const icon = selected.length && review ? findIcon(review, selected[0]) : undefined;
+  return icon ? icon.row : chosenRow;
+}
+
+function selectRow(index: number) {
+  chosenRow = index;
+  select([]);
+  els.overlay.querySelector(`rect.title[data-row="${index}"]`)?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  (document.getElementById("rt-category") as HTMLInputElement | null)?.focus();
+}
+
+function rowCategory(row: ReviewRow): string {
+  return row.tags.category ?? ocrFor(row) ?? "";
+}
+
+// Spec 10: the selected row's tag panel. Every icon in the row inherits these.
+function drawRowTags() {
+  if (!review) return;
+  const row = review.rows.find((r) => r.index === currentRow());
+  els.rowTags.replaceChildren();
+  if (!row) return;
+  const heading = document.createElement("h2");
+  heading.textContent = `Row ${row.index} tags`;
+  const note = para(`Every icon in this row (${row.icons.length}) gets these tags unless it has its own.`, "hint small");
+  const set = (patch: Partial<RowTags>) => commit(setRowTags(review!, row.index, patch));
+
+  const cat = textField("rt-category", "Category", rowCategory(row), (v) => set({ category: v }));
+  const pending = ocrState(row) === "pending";
+  const catHint = row.tags.category === null ? (pending ? "Reading the title..." : ocrFor(row) ? "Read from the title. Type to change it." : "") : "";
+  const sub = textField("rt-subtype", "Subtype", row.tags.subtype, (v) => set({ subtype: v }), "optional");
+  const scales = scaleField("rt-scales", row.tags.scales, (v) => set({ scales: v }));
+  const kind = kindField("rt-kind", row.tags.kind, (v) => set({ kind: v }));
+  els.rowTags.append(heading, note, cat);
+  if (catHint) els.rowTags.append(para(catHint, "hint small"));
+  els.rowTags.append(sub, scales, kind);
 }
 
 function showDetail() {
@@ -556,9 +608,13 @@ function showDetail() {
   }
   const icon = selected.length ? findIcon(review, selected[0]) : undefined;
   if (!icon) {
-    els.detail.replaceChildren(para("Click a box on the sheet to inspect or edit it. Shift-click to select more than one.", "hint"));
+    els.detail.replaceChildren(para("Click a box on the sheet to inspect, edit or tag it. Shift-click to select more than one.", "hint"));
     return;
   }
+  const row = review.rows.find((r) => r.index === icon.row)!;
+  const ocr = ocrFor(row) ?? "";
+  const tags = iconTags(row, icon, ocr);
+  const from = inheritedTags(row, icon, ocr);
   els.detail.replaceChildren();
   const c = crop(icon, 3, 320);
   c.className = "icon-crop";
@@ -572,20 +628,221 @@ function showDetail() {
     dd.textContent = v;
     dl.append(dt, dd);
   };
-  add("Position", `${icon.x}, ${icon.y}`);
   add("Size", `${icon.w} by ${icon.h} px`);
   add("Anchor", `${icon.anchorX.toFixed(2)}, ${icon.anchorY.toFixed(2)}`);
   add("Flags", icon.flags.length ? icon.flags.join(", ").replaceAll("-", " ") : "none");
   els.detail.append(h, c, dl);
+
+  // Tags for this icon: each field shows the row's value until changed here.
+  const box = document.createElement("div");
+  box.className = "icon-tags";
+  box.append(para("Tags for this icon", "sub"));
+  const set = (patch: Partial<IconTags>) => commit(setIconTags(review!, icon.key, patch, ocr));
+  const own = (f: keyof IconTags) => f in icon.overrides;
+  const wrap = (f: keyof IconTags, el: HTMLElement, rowValue: string) => {
+    const d = document.createElement("div");
+    d.className = own(f) ? "tag-field own" : "tag-field";
+    d.append(el);
+    const s = document.createElement("div");
+    s.className = "tag-source";
+    if (own(f)) {
+      s.append(`This icon only. ${f === "facing" ? "Guess was" : "Row says"}: ${rowValue || "(blank)"} `);
+      s.append(linkButton(f === "facing" ? "Use the guess" : "Use row value", () => commit(clearIconTag(review!, icon.key, f))));
+    } else if (f === "facing") {
+      s.textContent = icon.autoFacing === "none" ? "Guessed from the drawing: not clearly facing either way" : "Guessed from the drawing (auto), check it";
+    } else {
+      s.textContent = "From the row";
+    }
+    d.append(s);
+    return d;
+  };
+  box.append(
+    wrap("category", textField("it-category", "Category", tags.category, (v) => set({ category: v })), from.category),
+    wrap("subtype", textField("it-subtype", "Subtype", tags.subtype, (v) => set({ subtype: v }), "optional"), from.subtype),
+    wrap("scales", scaleField("it-scales", tags.scales, (v) => set({ scales: v })), from.scales.join(", ")),
+    wrap("kind", kindField("it-kind", tags.kind, (v) => set({ kind: v })), from.kind),
+    wrap("facing", facingField("it-facing", tags.facing, (v) => set({ facing: v })), from.facing),
+  );
+  els.detail.append(box);
+
   if (icon.extras.length) {
-    const box = document.createElement("div");
-    box.className = "extras";
-    box.append(para(`${icon.extras.length} nearby ${icon.extras.length === 1 ? "mark was" : "marks were"} left out of this box (dashed outline).`));
-    const inc = button("Include them", () => commit(includeExtras(review!, ink(), icon.key)));
-    const dis = button("Leave them out", () => commit(dismissExtras(review!, icon.key)));
-    box.append(inc, dis);
-    els.detail.append(box);
+    const ex = document.createElement("div");
+    ex.className = "extras";
+    ex.append(para(`${icon.extras.length} nearby ${icon.extras.length === 1 ? "mark was" : "marks were"} left out of this box (dashed outline).`));
+    ex.append(
+      button("Include them", () => commit(includeExtras(review!, ink(), icon.key))),
+      button("Leave them out", () => commit(dismissExtras(review!, icon.key))),
+    );
+    els.detail.append(ex);
   }
+}
+
+// Form controls for tags. Text saves when the field loses focus or Enter is pressed.
+function textField(id: string, label: string, value: string, onSave: (v: string) => void, placeholder = "") {
+  const l = document.createElement("label");
+  l.className = "field";
+  const s = document.createElement("span");
+  s.textContent = label;
+  const i = document.createElement("input");
+  i.type = "text";
+  i.id = id;
+  i.value = value;
+  i.placeholder = placeholder;
+  i.autocomplete = "off";
+  i.spellcheck = false;
+  i.addEventListener("change", () => {
+    const v = i.value.trim().toLowerCase();
+    if (v !== value) onSave(v);
+  });
+  i.addEventListener("keydown", (e) => e.key === "Enter" && i.blur());
+  l.append(s, i);
+  return l;
+}
+
+function scaleField(id: string, value: Scale[], onSave: (v: Scale[]) => void) {
+  const f = document.createElement("fieldset");
+  f.className = "field choices";
+  f.id = id;
+  const lg = document.createElement("legend");
+  lg.textContent = "Scale";
+  f.append(lg);
+  for (const s of SCALES) {
+    const l = document.createElement("label");
+    const c = document.createElement("input");
+    c.type = "checkbox";
+    c.id = `${id}-${s}`;
+    c.checked = value.includes(s);
+    c.addEventListener("change", () => {
+      const next = SCALES.filter((x) => (x === s ? c.checked : value.includes(x)));
+      if (!next.length) {
+        c.checked = true; // an icon must be usable at some scale
+        return setStatus("Pick at least one scale.");
+      }
+      onSave(next);
+    });
+    l.append(c, ` ${s}`);
+    f.append(l);
+  }
+  return f;
+}
+
+function kindField(id: string, value: Kind, onSave: (v: Kind) => void) {
+  return choiceField(id, "Kind", ["point", "pattern"] as Kind[], value, onSave, { point: "point (placed once)", pattern: "pattern (tiled)" });
+}
+
+function facingField(id: string, value: Facing, onSave: (v: Facing) => void) {
+  return choiceField(id, "Facing", ["left", "right", "none"] as Facing[], value, onSave);
+}
+
+function choiceField<T extends string>(id: string, label: string, options: T[], value: T, onSave: (v: T) => void, names: Partial<Record<T, string>> = {}) {
+  const f = document.createElement("fieldset");
+  f.className = "field choices";
+  f.id = id;
+  const lg = document.createElement("legend");
+  lg.textContent = label;
+  f.append(lg);
+  for (const o of options) {
+    const l = document.createElement("label");
+    const r = document.createElement("input");
+    r.type = "radio";
+    r.name = id;
+    r.id = `${id}-${o}`;
+    r.checked = o === value;
+    r.addEventListener("change", () => {
+      if (r.checked && o !== value) onSave(o);
+    });
+    l.append(r, ` ${names[o] ?? o}`);
+    f.append(l);
+  }
+  return f;
+}
+
+function linkButton(text: string, onClick: () => void) {
+  const b = document.createElement("button");
+  b.type = "button";
+  b.className = "link";
+  b.textContent = text;
+  b.addEventListener("click", onClick);
+  return b;
+}
+
+// Spec 5: read each row title with OCR in the background. OCR is a convenience: if it
+// fails, the category stays blank and can be typed.
+const ocrResults = new Map<string, string>();
+const ocrPending = new Set<string>();
+let ocrWorker: Promise<Tesseract.Worker> | null = null;
+let ocrFailed = false;
+
+function ocrKey(box: Box) {
+  return `${sheet!.id}:${box.x},${box.y},${box.w},${box.h}`;
+}
+
+function ocrFor(row: ReviewRow): string | undefined {
+  return row.title ? ocrResults.get(ocrKey(row.title)) : undefined;
+}
+
+function ocrState(row: ReviewRow): "done" | "pending" | "none" {
+  if (!row.title) return "none";
+  const k = ocrKey(row.title);
+  return ocrResults.has(k) ? "done" : ocrPending.has(k) ? "pending" : "none";
+}
+
+function startOcrWorker() {
+  const base = new URL("ocr/", location.href).href;
+  return createWorker("eng", 1, {
+    workerPath: `${base}worker.min.js`,
+    corePath: `${base}core`,
+    langPath: `${base}lang`,
+    workerBlobURL: false,
+    gzip: true,
+  }).then(async (w) => {
+    await w.setParameters({ tessedit_pageseg_mode: PSM.SINGLE_LINE, tessedit_char_whitelist: TITLE_CHARS });
+    return w;
+  });
+}
+
+let ocrRun = 0;
+async function readTitles() {
+  if (!review || !sheet || ocrFailed) return;
+  const run = ++ocrRun;
+  const rows = review.rows.filter((r) => r.title && !ocrResults.has(ocrKey(r.title)));
+  if (!rows.length) return;
+  for (const r of rows) ocrPending.add(ocrKey(r.title!));
+  renderTags();
+  try {
+    ocrWorker ??= startOcrWorker();
+    const worker = await ocrWorker;
+    let done = 0;
+    for (const r of rows) {
+      if (run !== ocrRun) return; // a newer split has started its own pass
+      const key = ocrKey(r.title!);
+      const p = prepareTitle(sheet.image, r.title!);
+      const canvas = new OffscreenCanvas(p.width, p.height);
+      canvas.getContext("2d")!.putImageData(new ImageData(p.data, p.width, p.height), 0, 0);
+      const { data } = await worker.recognize(await canvas.convertToBlob({ type: "image/png" }));
+      ocrResults.set(key, cleanCategory(data.text));
+      ocrPending.delete(key);
+      done++;
+      setStatus(`Reading row titles: ${done} of ${rows.length}.`);
+      renderTags();
+    }
+    setStatus(`Read ${rows.length} row titles. Check the categories and correct any mistakes.`);
+  } catch (err) {
+    ocrFailed = true;
+    ocrPending.clear();
+    renderTags();
+    setStatus("Could not read the row titles automatically. Type each row's category instead.");
+    console.warn("OCR failed", err);
+  }
+}
+
+// Redraw just the parts that show tags, keeping keyboard focus where it was.
+function renderTags() {
+  const focus = document.activeElement?.id;
+  drawRowList();
+  drawRowTags();
+  showDetail();
+  if (focus) document.getElementById(focus)?.focus();
 }
 
 function para(text: string, cls = "") {

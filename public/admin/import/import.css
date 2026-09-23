@@ -136,3 +136,26 @@ button { font: inherit; cursor: pointer; }
 .extras { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--rule); font-size: 0.85rem; }
 .extras p { margin: 0 0 6px; }
 .extras .ghost { margin: 0 6px 0 0; }
+
+.row.current { background: #f3ead8; border-color: var(--ink); }
+.row-cat { margin: 4px 0 0; font-size: 0.85rem; font-weight: 600; }
+.row-cat.empty { color: var(--merge); font-weight: 400; font-style: italic; }
+.row-cat .source { font-weight: 400; font-size: 0.75rem; color: var(--faint); }
+
+.tags h2 { margin-top: 0; }
+.field { display: flex; flex-direction: column; gap: 2px; margin: 8px 0 0; font-size: 0.8rem; color: var(--faint); border: 0; padding: 0; min-width: 0; }
+.field input[type="text"] { padding: 4px 6px; font: inherit; font-size: 0.9rem; color: var(--ink); border: 1px solid var(--rule); border-radius: 4px; background: #fff; }
+.field.choices { flex-direction: row; flex-wrap: wrap; gap: 2px 12px; }
+.field.choices legend { width: 100%; padding: 0; margin-bottom: 2px; }
+.field.choices label { color: var(--ink); font-size: 0.85rem; white-space: nowrap; }
+
+.icon-tags { margin-top: 12px; padding-top: 8px; border-top: 1px solid var(--rule); }
+.icon-tags .sub { margin: 0; font-weight: 600; font-size: 0.85rem; }
+.tag-field { padding: 2px 0 4px; }
+.tag-field.own { border-left: 3px solid var(--focus); padding-left: 6px; margin-left: -9px; }
+.tag-source { font-size: 0.72rem; color: var(--faint); margin-top: 2px; }
+.tag-field.own .tag-source { color: var(--focus); }
+.link { background: none; border: 0; padding: 0; color: var(--focus); text-decoration: underline; font: inherit; }
+
+.split-settings { margin-top: 16px; border-top: 1px solid var(--rule); padding-top: 8px; }
+.split-settings summary { font-family: "IM Fell English SC", Georgia, serif; font-size: 1.1rem; cursor: pointer; margin-bottom: 8px; }

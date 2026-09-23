@@ -340,11 +340,35 @@ function cutWideCell(profile: Int32Array, x0: number, x1: number, typicalW: numb
 
 // Ink lookups for the review tools: where the ink sits inside a box, and how much
 // padding a crop gets at this sheet's scale.
+export type Facing = "left" | "right" | "none";
+
 export interface Ink {
   width: number;
   height: number;
   pad: number;
   inkWithin(b: Box): Box | null;
+  facing(b: Box): Facing;
+}
+
+// Spec 6: guess which way an icon faces. Only a clearly lopsided icon gets a direction:
+// it must look unlike its mirror image AND carry noticeably more ink on one side (heads
+// and forequarters are usually the heavier end). Anything less certain is "none".
+function guessFacing(mask: Uint8Array, W: number, b: Box): Facing {
+  let n = 0, both = 0, sumX = 0;
+  for (let y = b.y; y < b.y + b.h; y++) {
+    const o = y * W;
+    for (let x = b.x; x < b.x + b.w; x++) {
+      if (!mask[o + x]) continue;
+      n++;
+      sumX += x - b.x;
+      if (mask[o + b.x + b.w - 1 - (x - b.x)]) both++;
+    }
+  }
+  if (!n) return "none";
+  const mirrorMatch = both / (2 * n - both);
+  const offset = sumX / n / b.w - 0.5;
+  if (mirrorMatch >= 0.5 || Math.abs(offset) < 0.04) return "none";
+  return offset > 0 ? "right" : "left";
 }
 
 export function makeInk(img: ImageLike, settings: SplitSettings): Ink {
@@ -360,6 +384,10 @@ export function makeInk(img: ImageLike, settings: SplitSettings): Ink {
       const x1 = Math.min(W, Math.round(b.x + b.w));
       const y1 = Math.min(H, Math.round(b.y + b.h));
       return x1 > x0 && y1 > y0 ? inkBox(mask, W, x0, y0, x1, y1) : null;
+    },
+    facing(b) {
+      const i = this.inkWithin(b);
+      return i ? guessFacing(mask, W, i) : "none";
     },
   };
 }

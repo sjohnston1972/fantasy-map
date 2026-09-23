@@ -61,12 +61,15 @@
       </div>
 
       <aside class="panel">
-        <h2>Settings</h2>
-        <form id="settings" class="settings"></form>
-        <p class="hint small">Changing a setting splits the sheet again and replaces your box edits. Undo brings them back.</p>
-        <button id="reset" type="button" class="ghost small">Reset to defaults</button>
+        <section id="row-tags" class="tags" aria-label="Row tags"></section>
         <h2>Selected icon</h2>
         <div id="detail" class="detail"></div>
+        <details class="split-settings">
+          <summary>Split settings</summary>
+          <form id="settings" class="settings"></form>
+          <p class="hint small">Changing a setting splits the sheet again and replaces your box edits. Undo brings them back.</p>
+          <button id="reset" type="button" class="ghost small">Reset to defaults</button>
+        </details>
       </aside>
     </div>
   </div>

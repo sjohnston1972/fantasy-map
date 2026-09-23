@@ -12,13 +12,16 @@ import {
   mergeIcons,
   neighbour,
   resizeIcon,
-  setTitleText,
+  iconTags,
+  setIconTags,
+  clearIconTag,
+  setRowTags,
   splitIcon,
 } from "../src/import/review";
 
 const img = PNG.sync.read(readFileSync("example artifacts/desert.png"));
 const ink = makeInk(img, DEFAULT_SETTINGS);
-const start = fromSplit(split(img));
+const start = fromSplit(split(img), ink);
 const row = (r: typeof start, n: number) => r.rows[n - 1];
 
 describe("review edits on desert.png", () => {
@@ -83,10 +86,10 @@ describe("review edits on desert.png", () => {
     expect(b.x).toBe(0);
   });
 
-  it("stores an edited row title", () => {
-    const r = setTitleText(start, 4, "oasis");
-    expect(row(r, 4).titleText).toBe("oasis");
-    expect(row(start, 4).titleText).toBe("");
+  it("starts every row with default tags, category taken from OCR", () => {
+    expect(row(start, 4).tags).toEqual({ category: null, subtype: "", scales: ["region"], kind: "point" });
+    const icon = row(start, 4).icons[0];
+    expect(iconTags(row(start, 4), icon, "oases").category).toBe("oases");
   });
 
   it("moves between boxes with the arrow keys", () => {
@@ -114,5 +117,42 @@ describe("nearby marks left out of a box", () => {
     const b = findIcon(dismissExtras(withExtra, a.key), a.key)!;
     expect(b.extras).toEqual([]);
     expect(b.flags).toEqual([]);
+  });
+});
+
+describe("tags", () => {
+  it("row tags apply to every icon in the row", () => {
+    const r = setRowTags(start, 3, { category: "cactus", scales: ["region", "world"], kind: "point" });
+    for (const icon of row(r, 3).icons) {
+      const t = iconTags(row(r, 3), icon, "cacti");
+      expect(t.category).toBe("cactus");
+      expect(t.scales).toEqual(["region", "world"]);
+    }
+    expect(iconTags(row(r, 2), row(r, 2).icons[0], "rock formations").category).toBe("rock formations");
+  });
+
+  it("a single icon can override its row, and the row change does not touch it", () => {
+    const icon = row(start, 3).icons[2];
+    let r = setIconTags(start, icon.key, { subtype: "prickly-pear" }, "cacti");
+    r = setRowTags(r, 3, { subtype: "saguaro" });
+    expect(iconTags(row(r, 3), findIcon(r, icon.key)!, "cacti").subtype).toBe("prickly-pear");
+    expect(iconTags(row(r, 3), row(r, 3).icons[0], "cacti").subtype).toBe("saguaro");
+  });
+
+  it("setting an override back to the row value removes it", () => {
+    const icon = row(start, 3).icons[0];
+    const r1 = setIconTags(start, icon.key, { kind: "pattern" });
+    expect(findIcon(r1, icon.key)!.overrides).toEqual({ kind: "pattern" });
+    const r2 = setIconTags(r1, icon.key, { kind: "point" });
+    expect(findIcon(r2, icon.key)!.overrides).toEqual({});
+    expect(findIcon(clearIconTag(r1, icon.key, "kind"), icon.key)!.overrides).toEqual({});
+  });
+
+  it("guesses facing only for clearly lopsided icons", () => {
+    const misc = row(start, 10).icons; // camel, resting camel, scorpion, sandstorm, sun, pyramid, wreck, signpost
+    expect(misc[0].autoFacing).toBe("left"); // standing camel faces left
+    expect(misc[4].autoFacing).toBe("none"); // the sun is symmetric
+    const symbols = row(start, 11).icons; // compass star, swords, hourglass are symmetric
+    expect([symbols[4], symbols[5], symbols[7]].map((i) => i.autoFacing)).toEqual(["none", "none", "none"]);
   });
 });

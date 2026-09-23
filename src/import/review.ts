@@ -2,7 +2,29 @@
 // Every edit returns a new state and leaves the old one untouched, which makes undo a
 // matter of keeping the previous states.
 
-import type { Box, IconFlag, Ink, SplitResult } from "./split";
+import type { Box, Facing, IconFlag, Ink, SplitResult } from "./split";
+
+// Spec 6: tags set once per row and inherited by every icon in it.
+export const SCALES = ["region", "world", "town", "dungeon"] as const;
+export type Scale = (typeof SCALES)[number];
+export type Kind = "point" | "pattern";
+
+export interface RowTags {
+  category: string | null; // null means "use the title read by OCR"
+  subtype: string;
+  scales: Scale[];
+  kind: Kind;
+}
+
+export interface IconTags {
+  category: string;
+  subtype: string;
+  scales: Scale[];
+  kind: Kind;
+  facing: Facing;
+}
+
+export const DEFAULT_ROW_TAGS: RowTags = { category: null, subtype: "", scales: ["region"], kind: "point" };
 
 export interface ReviewIcon extends Box {
   key: number; // stable handle for selection; survives renumbering
@@ -12,12 +34,14 @@ export interface ReviewIcon extends Box {
   anchorY: number;
   flags: IconFlag[];
   extras: Box[]; // nearby marks left out of the box (possible split)
+  autoFacing: Facing; // guessed from the ink
+  overrides: Partial<IconTags>; // tags set on this icon alone, replacing the row's
 }
 
 export interface ReviewRow {
   index: number;
   title: Box | null;
-  titleText: string;
+  tags: RowTags;
   icons: ReviewIcon[];
 }
 
@@ -30,7 +54,7 @@ export interface Review {
 
 const MIN_SIZE = 4;
 
-export function fromSplit(r: SplitResult): Review {
+export function fromSplit(r: SplitResult, ink: Ink): Review {
   let key = 1;
   return {
     width: r.width,
@@ -38,7 +62,7 @@ export function fromSplit(r: SplitResult): Review {
     rows: r.rows.map((row) => ({
       index: row.index,
       title: row.title,
-      titleText: "",
+      tags: { ...DEFAULT_ROW_TAGS },
       icons: row.icons.map((i) => ({
         key: key++,
         row: i.row,
@@ -51,6 +75,8 @@ export function fromSplit(r: SplitResult): Review {
         anchorY: i.anchorY,
         flags: [...i.flags],
         extras: [...i.extras],
+        autoFacing: ink.facing(i),
+        overrides: {},
       })),
     })),
     nextKey: key,
@@ -108,7 +134,14 @@ export function resizeIcon(r: Review, ink: Ink, key: number, box: Box): Review {
   const icon = findIcon(r, key);
   if (!icon) return r;
   const b = clampBox(normalise(box), ink);
-  const updated: ReviewIcon = { ...icon, ...b, ...anchorFor(ink, b), flags: [], extras: icon.extras.filter((e) => !inside(e, b)) };
+  const updated: ReviewIcon = {
+    ...icon,
+    ...b,
+    ...anchorFor(ink, b),
+    autoFacing: ink.facing(b),
+    flags: [],
+    extras: icon.extras.filter((e) => !inside(e, b)),
+  };
   return replaceIcon(r, updated);
 }
 
@@ -125,8 +158,50 @@ export function dismissExtras(r: Review, key: number): Review {
   return replaceIcon(r, { ...icon, extras: [], flags: icon.flags.filter((f) => f !== "possible-split") });
 }
 
-export function setTitleText(r: Review, rowIndex: number, text: string): Review {
-  return withRows(r, (row) => (row.index === rowIndex ? { ...row, titleText: text } : row));
+export function setRowTags(r: Review, rowIndex: number, patch: Partial<RowTags>): Review {
+  return withRows(r, (row) => (row.index === rowIndex ? { ...row, tags: { ...row.tags, ...patch } } : row));
+}
+
+// Set tags on one icon only. Setting a field back to the row's value removes the override.
+export function setIconTags(r: Review, key: number, patch: Partial<IconTags>, ocrTitle = ""): Review {
+  const icon = findIcon(r, key);
+  const row = icon && r.rows.find((x) => x.index === icon.row);
+  if (!icon || !row) return r;
+  const inherited = inheritedTags(row, icon, ocrTitle);
+  const overrides: Partial<IconTags> = { ...icon.overrides };
+  for (const [k, v] of Object.entries(patch) as [keyof IconTags, IconTags[keyof IconTags]][]) {
+    if (same(v, inherited[k])) delete overrides[k];
+    else (overrides as Record<string, unknown>)[k] = v;
+  }
+  return replaceIcon(r, { ...icon, overrides });
+}
+
+export function clearIconTag(r: Review, key: number, field: keyof IconTags): Review {
+  const icon = findIcon(r, key);
+  if (!icon || !(field in icon.overrides)) return r;
+  const overrides = { ...icon.overrides };
+  delete overrides[field];
+  return replaceIcon(r, { ...icon, overrides });
+}
+
+// What an icon gets from its row (and its own facing guess), before any override.
+export function inheritedTags(row: ReviewRow, icon: ReviewIcon, ocrTitle = ""): IconTags {
+  return {
+    category: row.tags.category ?? ocrTitle,
+    subtype: row.tags.subtype,
+    scales: row.tags.scales,
+    kind: row.tags.kind,
+    facing: icon.autoFacing,
+  };
+}
+
+// The tags that will be stored for an icon: inherited, then its overrides on top.
+export function iconTags(row: ReviewRow, icon: ReviewIcon, ocrTitle = ""): IconTags {
+  return { ...inheritedTags(row, icon, ocrTitle), ...icon.overrides };
+}
+
+function same(a: unknown, b: unknown): boolean {
+  return Array.isArray(a) && Array.isArray(b) ? a.length === b.length && a.every((x) => b.includes(x)) : a === b;
 }
 
 // Arrow-key movement: left and right within a row, up and down to the nearest box
@@ -149,7 +224,7 @@ export function neighbour(r: Review, key: number, dir: "left" | "right" | "up" |
 }
 
 function makeIcon(key: number, row: number, box: Box, ink: Ink, extras: Box[]): ReviewIcon {
-  return { key, row, col: 0, ...box, ...anchorFor(ink, box), flags: [], extras };
+  return { key, row, col: 0, ...box, ...anchorFor(ink, box), flags: [], extras, autoFacing: ink.facing(box), overrides: {} };
 }
 
 // Anchor at the bottom centre of the ink inside the box, as fractions of the box.
