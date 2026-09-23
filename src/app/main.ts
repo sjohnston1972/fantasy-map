@@ -118,7 +118,7 @@ function paint(map: GeneratedMap) {
   current = map;
   const { width, height } = map.settings;
   els.mapBox.style.aspectRatio = `${width} / ${height}`;
-  els.map.innerHTML = renderSvg({ width, height, water: map.water, symbols: map.symbols, towns: map.towns, ink });
+  els.map.innerHTML = renderSvg({ width, height, water: map.water, symbols: map.symbols, towns: map.towns, labels: map.labels, ink });
   const svg = els.map.querySelector("svg")!;
   svg.removeAttribute("width");
   svg.removeAttribute("height");

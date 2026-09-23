@@ -6,6 +6,7 @@
 import { outlines, simplify, smoothLoop, type Pt } from "./contours";
 import { WATER_LAKE, WATER_SEA, type Hydrology } from "./hydrology";
 import { pickSymbol, type InkSet, type InkSymbol } from "./inkset";
+import type { Labelling } from "./labels";
 import type { Settlements } from "./settlements";
 import type { PlacedSymbol } from "./symbols";
 
@@ -16,6 +17,7 @@ export interface SvgInput {
   symbols: PlacedSymbol[];
   towns?: Settlements;
   ink?: InkSet; // hand-inked symbols; placeholders are drawn for any role without them
+  labels?: Labelling;
 }
 
 const INK = "#1a1714";
@@ -122,6 +124,38 @@ export function renderSvg(m: SvgInput): string {
     }
   }
 
+  // Emblems: heraldic banners beside the capital and the chief towns.
+  if (m.labels) {
+    for (const e of m.labels.emblems) {
+      const icon = pickSymbol(m.ink, "emblem", e.variant);
+      if (icon) parts.push(`<g data-emblem="${e.town}">${defs.use(icon, e.x, e.y, e.w, e.w * 1.25, false, W)}</g>`);
+      else {
+        const x0 = e.x - e.w / 2;
+        const top = e.y - e.w * 1.2;
+        parts.push(`<g data-emblem="${e.town}"><path d="M${x0.toFixed(1)} ${top.toFixed(1)}H${(x0 + e.w).toFixed(1)}V${(top + e.w * 0.7).toFixed(1)}Q${(x0 + e.w).toFixed(1)} ${(top + e.w * 1.1).toFixed(1)} ${e.x.toFixed(1)} ${(top + e.w * 1.2).toFixed(1)}Q${x0.toFixed(1)} ${(top + e.w * 1.1).toFixed(1)} ${x0.toFixed(1)} ${(top + e.w * 0.7).toFixed(1)}Z" fill="#fff" stroke="${INK}" stroke-width="${(1.4 * (W / 1600)).toFixed(2)}"/></g>`);
+      }
+    }
+  }
+
+  // Lettering, on top of everything, each with a white outline so it reads over the ink.
+  if (m.labels) {
+    const riverPaths: string[] = [];
+    parts.push(`<g font-family="'IM Fell English', Georgia, 'Times New Roman', serif" fill="${INK}" stroke="#fff" stroke-linejoin="round" paint-order="stroke">`);
+    for (const l of m.labels.labels) {
+      const text = escapeXml(l.caps ? l.text.toUpperCase() : l.text);
+      const style = `font-size="${l.size.toFixed(1)}"${l.italic ? ' font-style="italic"' : ""}${l.spacing ? ` letter-spacing="${(l.spacing * l.size).toFixed(1)}"` : ""} stroke-width="${(l.size * 0.22).toFixed(1)}"`;
+      if (l.path) {
+        const id = `rl${l.id}`;
+        riverPaths.push(`<path id="${id}" d="M${l.path.map(([x, y]) => `${x.toFixed(1)} ${y.toFixed(1)}`).join("L")}"/>`);
+        parts.push(`<text data-label="${l.id}" data-kind="${l.kind}" ${style}><textPath href="#${id}">${text}</textPath></text>`);
+      } else {
+        parts.push(`<text data-label="${l.id}" data-kind="${l.kind}" x="${l.x.toFixed(1)}" y="${l.y.toFixed(1)}" text-anchor="${l.anchor}" ${style}>${text}</text>`);
+      }
+    }
+    parts.push(`</g>`);
+    if (riverPaths.length) parts.push(`<defs>${riverPaths.join("")}</defs>`);
+  }
+
   // A double-ruled border, as on old engraved maps.
   parts.push(`<rect x="6" y="6" width="${W - 12}" height="${H - 12}" fill="none" stroke="${INK}" stroke-width="3"/>`);
   parts.push(`<rect x="14" y="14" width="${W - 28}" height="${H - 28}" fill="none" stroke="${INK}" stroke-width="1"/>`);
@@ -129,6 +163,10 @@ export function renderSvg(m: SvgInput): string {
   // Drawings used on this map, defined once and reused by reference.
   parts.splice(2, 0, defs.markup());
   return parts.join("");
+}
+
+function escapeXml(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
 // Each hand-inked drawing is defined once in <defs> and placed with <use>. Every placement

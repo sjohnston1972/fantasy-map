@@ -16,7 +16,8 @@ const ink = toInkSet(packs);
 
 const t0 = performance.now();
 const m = generate({ seed: Number(seedArg ?? 482913) });
-const svg = renderSvg({ width: m.settings.width, height: m.settings.height, water: m.water, symbols: m.symbols, towns: m.towns, ink });
+const svg = renderSvg({ width: m.settings.width, height: m.settings.height, water: m.water, symbols: m.symbols, towns: m.towns, labels: m.labels, ink });
+console.log(m.labels.labels.map((l) => `${l.kind}: ${l.text}`).join("\n"));
 console.log(`generated in ${Math.round(performance.now() - t0)} ms; SVG ${Math.round(svg.length / 1024)} KB`);
 writeFileSync(`${prefix}.svg`, svg);
 if (crop) {

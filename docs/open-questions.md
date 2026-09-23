@@ -174,3 +174,19 @@ can only be reopened by dropping its file again on the Import page.
   so overlapping symbols stay readable.
 - **Placement layout does not depend on the packs**: symbols are fitted inside the boxes
   the placement stage chose, so the same seed gives the same layout whatever icons exist.
+
+## Map milestone 8 decisions (labels and emblems)
+
+- **Names by region** (Steven's choice): Norse in the cold north, Celtic in the west, Old
+  English in the heartland, softer southern names in the warm south; the boundaries shift
+  with the seed. Names join a first part and an ending (Thorn + wick) and are unique on a map.
+- **Named on each map:** every settlement, the sea, up to seven regions (forests, mountain
+  ranges, marshes, deserts, wilds), lakes big enough to letter, and the biggest rivers
+  (lettered along their course).
+- **Collision rules:** labels never overlap each other, settlements, landmarks, bridges or
+  emblems; scattered symbols (trees, hills) under lettering are removed, as engravers left
+  space for names. Crowded settlements search further out, then use slightly smaller type.
+- **Emblems:** a heraldic banner (from the emblem pack) beside the capital and the next two
+  largest towns.
+- **Text width is estimated** from the typeface's average letter width, so the generator
+  gives the same layout everywhere (browser, tests, scripts).
