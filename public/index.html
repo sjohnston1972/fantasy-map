@@ -22,9 +22,8 @@
         <span>Seed</span>
         <span class="seed-row">
           <input id="seed" type="number" min="0" max="999999999" step="1" inputmode="numeric" required>
-          <button id="dice" type="button" class="icon-btn" title="Random seed" aria-label="Random seed"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="3" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="8" cy="8" r="1.6" fill="currentColor"/><circle cx="16" cy="8" r="1.6" fill="currentColor"/><circle cx="12" cy="12" r="1.6" fill="currentColor"/><circle cx="8" cy="16" r="1.6" fill="currentColor"/><circle cx="16" cy="16" r="1.6" fill="currentColor"/></svg></button>
         </span>
-        <small>The same seed always draws the same map.</small>
+        <small>Each map has a seed. Type one and press Enter to bring that map back.</small>
       </label>
 
       <label class="field">
@@ -46,7 +45,7 @@
         <input id="mountains" type="range" min="0" max="100" step="1">
       </label>
 
-      <button type="submit" class="generate">Generate</button>
+      <button type="submit" class="generate">Generate a new map</button>
 
       <p class="note">Early preview: the terrain is grey relief, lit from the top left. Rivers and lakes are drawn in blue; every river runs downhill to the sea or a lake. Towns, ink symbols and labels arrive in later stages.</p>
     </form>

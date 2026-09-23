@@ -40,3 +40,8 @@ input[type="range"] { width: 100%; accent-color: var(--ink); }
 .stage canvas { display: block; width: auto; height: auto; max-width: 100%; max-height: calc(100vh - 140px); background: #fff; border: 2px solid var(--ink); outline: 1px solid var(--ink); outline-offset: 4px; image-rendering: auto; }
 @media (max-width: 760px) { .stage canvas { max-height: none; width: 100%; } }
 .stage figcaption { font-size: 0.85rem; color: var(--faint); text-align: center; }
+
+/* Fade in each newly drawn map. */
+.stage canvas.fresh { animation: ink-in 0.4s ease-out; }
+@keyframes ink-in { from { opacity: 0.25; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .stage canvas.fresh { animation: none; } }

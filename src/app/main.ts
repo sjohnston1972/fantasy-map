@@ -16,7 +16,6 @@ const $ = <T extends Element>(sel: string) => document.querySelector<T>(sel)!;
 const els = {
   form: $<HTMLFormElement>("#settings"),
   seed: $<HTMLInputElement>("#seed"),
-  dice: $<HTMLButtonElement>("#dice"),
   shape: $<HTMLSelectElement>("#shape"),
   sea: $<HTMLInputElement>("#sea"),
   seaOut: $<HTMLOutputElement>("#sea-out"),
@@ -37,13 +36,11 @@ tick.port1.onmessage = () => pendingDraw();
 syncForm();
 draw();
 
+// Generate draws a new map. If a different seed has been typed in, that seed is drawn
+// instead, so a map someone liked can be brought back.
 els.form.addEventListener("submit", (e) => {
   e.preventDefault();
-  readForm();
-  draw();
-});
-els.dice.addEventListener("click", () => {
-  els.seed.value = String(randomSeed());
+  if (Number(els.seed.value) === settings.seed) els.seed.value = String(randomSeed());
   readForm();
   draw();
 });
@@ -82,6 +79,10 @@ function draw() {
     const t0 = performance.now();
     const map = generate(settings);
     paint(map);
+    // A short fade-in, so every redraw is visible even when little changes.
+    els.canvas.classList.remove("fresh");
+    void els.canvas.offsetWidth;
+    els.canvas.classList.add("fresh");
     const ms = Math.round(performance.now() - t0);
     const w = map.water;
     els.caption.textContent = `Seed ${map.settings.seed}, ${map.settings.width} by ${map.settings.height} px: ${Math.round((1 - map.landSea.landShare) * 100)}% sea, ${w.rivers.length} rivers, ${w.lakes} ${w.lakes === 1 ? "lake" : "lakes"}. Generated in ${ms} ms.`;
