@@ -111,3 +111,18 @@ can only be reopened by dropping its file again on the Import page.
   example) is included in the settings object; milestone 10 should add it to the code.
 - **Speed.** A default 1600 by 2400 map takes about 0.4 s for this stage (height map at
   one value per 4 by 4 pixels).
+
+## Map milestone 3 decisions (rivers and lakes)
+
+- **Lakes are capped** at about 5 per 100,000 land cells (8 on a default map), chosen from
+  inland water first, then the biggest hollows between 30 cells and 2% of the land. Noise
+  terrain has many closed hollows; making every one a lake flooded the map (130 lakes).
+- **Other hollows drain through a carved gorge** along the valley floor, the way real
+  rivers cut through a rim; only tiny, shallow dips are filled flat. The terrain passed to
+  later stages is this adjusted terrain (`water.heights`), so rivers are downhill on the
+  ground the map actually shows.
+- **River density** is fixed for now (a cell becomes river once it gathers rain from 0.25%
+  of the land; about 95 river segments on a default map). The spec has no setting for it;
+  worth adding if maps feel too wet or too dry once ink symbols are in.
+- **Speed.** Rivers and lakes add about 0.25 s in Node and up to 0.5 s in the browser; a
+  default map now takes about 1 s in total, against the spec's 10 s budget.

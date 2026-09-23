@@ -2,6 +2,7 @@
 // earlier stages produced. Later milestones add rivers, towns, symbols and labels here.
 
 import { generateHeightMap, type HeightMap } from "./heightmap";
+import { hydrology, type Hydrology } from "./hydrology";
 import { landAndSea, type LandSea } from "./landsea";
 import { cleanSettings, type MapSettings } from "./settings";
 
@@ -9,6 +10,7 @@ export interface GeneratedMap {
   settings: MapSettings;
   height: HeightMap;
   landSea: LandSea;
+  water: Hydrology;
   timings: Record<string, number>; // milliseconds per stage
 }
 
@@ -23,5 +25,6 @@ export function generate(input: Partial<MapSettings>): GeneratedMap {
   };
   const height = time("height map", () => generateHeightMap(settings));
   const landSea = time("land and sea", () => landAndSea(height));
-  return { settings, height, landSea, timings };
+  const water = time("rivers and lakes", () => hydrology(height, landSea));
+  return { settings, height, landSea, water, timings };
 }

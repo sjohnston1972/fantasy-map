@@ -2,7 +2,7 @@
 // and show it as a grey relief. Everything runs in the visitor's browser.
 
 import { generate, type GeneratedMap } from "../gen/pipeline";
-import { renderRelief } from "../gen/render";
+import { drawRivers, renderRelief } from "../gen/render";
 import { randomSeed } from "../gen/rng";
 import { cleanSettings, DEFAULT_SETTINGS, type MapSettings } from "../gen/settings";
 
@@ -83,16 +83,25 @@ function draw() {
     const map = generate(settings);
     paint(map);
     const ms = Math.round(performance.now() - t0);
-    els.caption.textContent = `Seed ${map.settings.seed}, ${map.settings.width} by ${map.settings.height} px, ${Math.round((1 - map.landSea.landShare) * 100)}% water. Generated in ${ms} ms.`;
+    const w = map.water;
+    els.caption.textContent = `Seed ${map.settings.seed}, ${map.settings.width} by ${map.settings.height} px: ${Math.round((1 - map.landSea.landShare) * 100)}% sea, ${w.rivers.length} rivers, ${w.lakes} ${w.lakes === 1 ? "lake" : "lakes"}. Generated in ${ms} ms.`;
   };
 }
 
+// The terrain is one pixel per grid cell; the canvas is drawn at twice that so the river
+// lines stay crisp when the page scales it up.
+const DRAW_SCALE = 2;
+
 function paint(map: GeneratedMap) {
   const { cols, rows } = map.height;
-  els.canvas.width = cols;
-  els.canvas.height = rows;
+  els.canvas.width = cols * DRAW_SCALE;
+  els.canvas.height = rows * DRAW_SCALE;
   els.canvas.style.aspectRatio = `${map.settings.width} / ${map.settings.height}`;
+  const relief = new OffscreenCanvas(cols, rows);
+  relief.getContext("2d")!.putImageData(new ImageData(renderRelief(map.height, map.landSea, map.water), cols, rows), 0, 0);
   const ctx = els.canvas.getContext("2d")!;
-  ctx.putImageData(new ImageData(renderRelief(map.height, map.landSea), cols, rows), 0, 0);
-  els.canvas.setAttribute("aria-label", `Terrain preview for seed ${map.settings.seed}: land shaded grey by height, sea pale.`);
+  ctx.imageSmoothingEnabled = true;
+  ctx.drawImage(relief, 0, 0, cols * DRAW_SCALE, rows * DRAW_SCALE);
+  drawRivers(ctx, map.water, DRAW_SCALE);
+  els.canvas.setAttribute("aria-label", `Terrain preview for seed ${map.settings.seed}: land shaded grey by height, sea pale, rivers and lakes in blue.`);
 }
