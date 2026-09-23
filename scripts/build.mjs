@@ -2,7 +2,7 @@
 // page, and copies the OCR engine and its English data so the page never loads code
 // from another site.
 import { build } from "esbuild";
-import { copyFileSync, mkdirSync, readdirSync } from "node:fs";
+import { copyFileSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
 
 await build({
   entryPoints: ["src/import/app.ts"],
@@ -27,3 +27,14 @@ for (const f of readdirSync("node_modules/tesseract.js-core")) {
   if (/lstm\.wasm\.js$/.test(f)) copyFileSync(`node_modules/tesseract.js-core/${f}`, `${ocr}/core/${f}`);
 }
 copyFileSync("node_modules/@tesseract.js-data/eng/4.0.0_best_int/eng.traineddata.gz", `${ocr}/lang/eng.traineddata.gz`);
+
+// Potrace (GPL-2.0) is served as its own unmodified file with its licence and source,
+// not bundled into the page code. See docs/open-questions.md.
+mkdirSync("public/admin/import/potrace", { recursive: true });
+copyFileSync("node_modules/esm-potrace-wasm/dist/index.js", "public/admin/import/potrace/potrace.js");
+copyFileSync("node_modules/esm-potrace-wasm/LICENSE", "public/admin/import/potrace/LICENSE.txt");
+writeFileSync(
+  "public/admin/import/potrace/SOURCE.txt",
+  "potrace.js is esm-potrace-wasm 0.5.1, unmodified, licensed GPL-2.0 (see LICENSE.txt).\n" +
+    "Source code: https://github.com/tomayac/esm-potrace-wasm (built from Potrace, http://potrace.sourceforge.net/).\n",
+);

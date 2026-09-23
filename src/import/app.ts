@@ -5,6 +5,8 @@
 import { createWorker, PSM } from "tesseract.js";
 import type Tesseract from "tesseract.js";
 import { cleanCategory, prepareTitle, TITLE_CHARS } from "./ocr";
+import { DEFAULT_TRACE, MIN_PRINT_HEIGHT, medianHeight, type TraceSettings } from "./trace";
+import { releaseEntry, traceSig, traceToEntry, type TraceEntry } from "./tracing";
 import { DEFAULT_SETTINGS, iconId, makeInk, split, type Box, type Facing, type Ink, type SplitSettings } from "./split";
 import {
   allIcons,
@@ -83,6 +85,15 @@ const els = {
   undo: $<HTMLButtonElement>("#tool-undo"),
   redo: $<HTMLButtonElement>("#tool-redo"),
   hint: $<HTMLElement>("#tool-hint"),
+  trace: $<HTMLButtonElement>("#tool-trace"),
+  progress: $<HTMLProgressElement>("#trace-progress"),
+  resWarning: $<HTMLElement>("#res-warning"),
+  viewSheet: $<HTMLButtonElement>("#view-sheet"),
+  viewIcons: $<HTMLButtonElement>("#view-icons"),
+  gallery: $<HTMLElement>("#gallery"),
+  legend: $<HTMLElement>("#legend"),
+  traceSettings: $<HTMLFormElement>("#trace-settings"),
+  traceReset: $<HTMLButtonElement>("#trace-reset"),
 };
 
 let sheet: Sheet | null = null;
@@ -101,7 +112,24 @@ function ink(): Ink {
   return inkCache.ink;
 }
 
+// Tracing state (milestone 4). Declared here, before the setup code below uses it.
+let traceSettings: TraceSettings = { ...DEFAULT_TRACE };
+const traces = new Map<number, TraceEntry>(); // by icon key
+let tracing: { stop: boolean } | null = null;
+let view: "sheet" | "icons" = "sheet";
+
+const TRACE_FIELDS: { key: "turdsize" | "alphamax" | "opttolerance" | "level"; label: string; min: number; max: number; step: number; help: string }[] = [
+  { key: "turdsize", label: "Speck size", min: 0, max: 100, step: 1, help: "Potrace turdsize: specks smaller than this many pixels are dropped" },
+  { key: "alphamax", label: "Corner smoothing", min: 0, max: 1.34, step: 0.05, help: "Potrace alphamax: 0 keeps sharp corners, 1.3 rounds them" },
+  { key: "opttolerance", label: "Curve joining", min: 0, max: 1, step: 0.05, help: "Potrace opttolerance: higher joins more curves, giving smaller files" },
+  { key: "level", label: "Ink level", min: 1, max: 254, step: 1, help: "Grey level below which a pixel is traced as ink (the splitter uses its own threshold)" },
+];
+
 buildSettingsForm();
+buildTraceSettingsForm();
+els.trace.addEventListener("click", () => void traceAll());
+els.viewSheet.addEventListener("click", () => setView("sheet"));
+els.viewIcons.addEventListener("click", () => setView("icons"));
 els.settings.addEventListener("submit", (e) => e.preventDefault());
 
 els.file.addEventListener("change", () => {
@@ -161,6 +189,8 @@ async function load(file: File) {
   redoStack = [];
   selected = [];
   review = null;
+  clearTraces();
+  upscaleChosen = false;
   resplit();
 }
 
@@ -185,6 +215,11 @@ function resplit() {
       next.rows.forEach((row, i) => (row.tags = review!.rows[i].tags));
     }
     selected = []; // box keys start again from 1, so an old selection would point at the wrong box
+    if (!upscaleChosen) {
+      // Spec 7: small icons get the 4x upscale by default; print-size sheets do not need it.
+      traceSettings = { ...traceSettings, upscale: medianHeight(allIcons(next)) < MIN_PRINT_HEIGHT };
+      upscaleChosen = true;
+    }
     commit(next, lastSettings ?? settings);
     lastSettings = { ...settings };
     void readTitles();
@@ -192,6 +227,7 @@ function resplit() {
   }, 30);
 }
 let lastSettings: SplitSettings | null = null;
+let upscaleChosen = false;
 
 // Make an edit: remember the current state for undo, then show the new one.
 function commit(next: Review, prevSettings: SplitSettings = settings) {
@@ -273,9 +309,11 @@ function setSplitMode(on: boolean) {
 function select(keys: number[], scroll = false) {
   selected = keys;
   if (splitMode && keys.length !== 1) setSplitMode(false);
-  drawOverlay();
+  if (view === "sheet") drawOverlay();
+  else drawGallery();
   renderTags();
   updateToolbar();
+  if (view === "icons" && scroll && keys.length) els.gallery.querySelector(`[data-key="${keys[0]}"]`)?.scrollIntoView({ block: "nearest", behavior: "smooth" });
   if (scroll && keys.length) els.overlay.querySelector(`[data-key="${keys[0]}"]`)?.scrollIntoView({ block: "nearest", behavior: "smooth" });
 }
 
@@ -312,6 +350,8 @@ function onKey(e: KeyboardEvent) {
     return (document.getElementById(selected.length === 1 ? "it-category" : "rt-category") as HTMLInputElement | null)?.focus();
   }
   if (e.key === "m" || e.key === "M") return doMerge();
+  if (e.key === "t" || e.key === "T") return void traceAll();
+  if (e.key === "v" || e.key === "V") return setView(view === "sheet" ? "icons" : "sheet");
   if (e.key === "s" || e.key === "S") return setSplitMode(!splitMode);
   if (e.key === "Escape") return splitMode ? setSplitMode(false) : select([]);
 }
@@ -420,9 +460,12 @@ function render() {
     stat("Rows", String(review.rows.length), untitled ? `${untitled} without a title` : "all titled"),
     stat("Icons", String(icons.length), flagged ? `${flagged} flagged for review` : "none flagged"),
     stat("Split time", `${Math.round(splitMs)} ms`, undoStack.length ? `${undoStack.length} edits so far` : "no edits yet"),
+    stat("Traced", `${tracedCount()} of ${icons.length}`, traceSettings.upscale ? "enlarged 4x before tracing" : "at sheet size"),
   );
   if (mismatched) els.summary.append(stat("Check", `${mismatched} rows`, `not ${settings.expectedPerRow} icons`, true));
-  drawOverlay();
+  drawResWarning();
+  if (view === "sheet") drawOverlay();
+  else drawGallery();
   renderTags();
   updateToolbar();
 }
@@ -631,7 +674,7 @@ function showDetail() {
   add("Size", `${icon.w} by ${icon.h} px`);
   add("Anchor", `${icon.anchorX.toFixed(2)}, ${icon.anchorY.toFixed(2)}`);
   add("Flags", icon.flags.length ? icon.flags.join(", ").replaceAll("-", " ") : "none");
-  els.detail.append(h, c, dl);
+  els.detail.append(h, c, dl, traceDetail(icon));
 
   // Tags for this icon: each field shows the row's value until changed here.
   const box = document.createElement("div");
@@ -869,6 +912,8 @@ function updateToolbar() {
   els.del.disabled = icons.length === 0;
   els.undo.disabled = undoStack.length === 0;
   els.redo.disabled = redoStack.length === 0;
+  els.trace.textContent = tracing ? "Stop tracing" : review && tracedCount() === allIcons(review).length ? "All traced" : tracedCount() ? "Trace the rest" : "Trace all icons";
+  els.trace.disabled = !tracing && !!review && tracedCount() === allIcons(review).length;
   els.hint.textContent = splitMode
     ? "Click inside the selected box where the cut should go. Esc cancels."
     : icons.length === 1
@@ -926,4 +971,226 @@ function setStatus(text: string) {
 }
 
 // Keep handles and dots a sensible size when the window is resized.
-window.addEventListener("resize", () => drawOverlay());
+window.addEventListener("resize", () => view === "sheet" && drawOverlay());
+
+// ---- Tracing (milestone 4, spec 7) ----
+
+function traceState(icon: ReviewIcon): "done" | "stale" | "none" {
+  const t = traces.get(icon.key);
+  if (!t) return "none";
+  return t.sig === traceSig(icon, traceSettings) ? "done" : "stale";
+}
+
+function tracedCount(): number {
+  return review ? allIcons(review).filter((i) => traceState(i) === "done").length : 0;
+}
+
+async function traceOne(icon: ReviewIcon) {
+  const old = traces.get(icon.key);
+  const entry = await traceToEntry(sheet!.image, icon, traceSettings);
+  if (old) releaseEntry(old);
+  traces.set(icon.key, entry);
+}
+
+// Spec 3 step 5: trace every icon that has no up-to-date trace, with a progress bar.
+async function traceAll() {
+  if (!review || !sheet) return;
+  if (tracing) {
+    tracing.stop = true;
+    return;
+  }
+  const todo = allIcons(review).filter((i) => traceState(i) !== "done");
+  if (!todo.length) return setStatus("Every icon is already traced.");
+  const run = { stop: false };
+  tracing = run;
+  els.progress.hidden = false;
+  els.progress.max = todo.length;
+  updateToolbar();
+  const t0 = performance.now();
+  let done = 0;
+  try {
+    for (const icon of todo) {
+      if (run.stop || !review || !findIcon(review, icon.key)) break;
+      await traceOne(icon);
+      done++;
+      els.progress.value = done;
+      setStatus(`Tracing: ${done} of ${todo.length}.`);
+      if (done % 4 === 0 || done === todo.length) {
+        drawGallery();
+        await yieldToPage();
+      }
+    }
+    const secs = ((performance.now() - t0) / 1000).toFixed(1);
+    setStatus(run.stop ? `Stopped after tracing ${done} icons.` : `Traced ${done} icons in ${secs} s. Compare each PNG and SVG before approving.`);
+  } catch (err) {
+    console.warn("Tracing failed", err);
+    setStatus("Tracing failed. Try again, or reload the page.");
+  } finally {
+    tracing = null;
+    els.progress.hidden = true;
+    render();
+  }
+}
+
+// Spec 7: warn when the icons are too small for print, and offer the 4x upscale.
+function drawResWarning() {
+  if (!review) return;
+  const median = medianHeight(allIcons(review));
+  els.resWarning.hidden = median >= MIN_PRINT_HEIGHT;
+  if (els.resWarning.hidden) return;
+  els.resWarning.replaceChildren();
+  const p = document.createElement("p");
+  const strong = document.createElement("strong");
+  strong.textContent = "Screen quality only. ";
+  p.append(
+    strong,
+    `The typical icon on this sheet is ${median} px tall; printing at A3 needs at least ${MIN_PRINT_HEIGHT} px. ` +
+      `Enlarging 4x before tracing gives smoother outlines, though it cannot add detail the sheet does not have.`,
+  );
+  const l = document.createElement("label");
+  const c = document.createElement("input");
+  c.type = "checkbox";
+  c.id = "upscale";
+  c.checked = traceSettings.upscale;
+  c.addEventListener("change", () => {
+    traceSettings = { ...traceSettings, upscale: c.checked };
+    render();
+  });
+  l.append(c, " Enlarge 4x (bicubic) before tracing");
+  els.resWarning.append(p, l);
+}
+
+function buildTraceSettingsForm() {
+  for (const f of TRACE_FIELDS) {
+    const label = document.createElement("label");
+    label.title = f.help;
+    const span = document.createElement("span");
+    span.textContent = f.label;
+    const input = document.createElement("input");
+    input.type = "number";
+    input.required = true;
+    input.name = f.key;
+    input.min = String(f.min);
+    input.max = String(f.max);
+    input.step = String(f.step);
+    input.value = String(traceSettings[f.key]);
+    input.addEventListener("change", () => {
+      const v = Number(input.value);
+      if (!input.validity.valid || !Number.isFinite(v)) return;
+      traceSettings = { ...traceSettings, [f.key]: v };
+      setStatus("Trace settings changed. Traced icons are now out of date; trace again to update them.");
+      render();
+    });
+    label.append(span, input);
+    els.traceSettings.append(label);
+  }
+  els.traceSettings.addEventListener("submit", (e) => e.preventDefault());
+  els.traceReset.addEventListener("click", () => {
+    traceSettings = { ...DEFAULT_TRACE, upscale: traceSettings.upscale };
+    for (const f of TRACE_FIELDS) (els.traceSettings.elements.namedItem(f.key) as HTMLInputElement).value = String(traceSettings[f.key]);
+    render();
+  });
+}
+
+// PNG and SVG side by side for one icon, on a checkerboard so transparency shows.
+function comparePair(icon: ReviewIcon, big: boolean): HTMLElement {
+  const wrap = document.createElement("div");
+  wrap.className = big ? "pair big" : "pair";
+  const t = traces.get(icon.key);
+  const state = traceState(icon);
+  if (!t || state === "none") {
+    wrap.classList.add("empty");
+    wrap.append(para("Not traced yet", "hint small"));
+    return wrap;
+  }
+  for (const [label, url] of [["PNG", t.pngUrl], ["SVG", t.svgUrl]]) {
+    const fig = document.createElement("figure");
+    const img = document.createElement("img");
+    img.src = url;
+    img.alt = `${label} of ${iconId(sheet!.id, icon)}`;
+    img.draggable = false;
+    const cap = document.createElement("figcaption");
+    cap.textContent = label;
+    fig.append(img, cap);
+    wrap.append(fig);
+  }
+  if (state === "stale") {
+    wrap.classList.add("stale");
+    wrap.append(para("Out of date: the box or trace settings changed", "stale-note"));
+  }
+  return wrap;
+}
+
+function traceDetail(icon: ReviewIcon): HTMLElement {
+  const box = document.createElement("div");
+  box.className = "trace-detail";
+  box.append(para("Traced result", "sub"), comparePair(icon, true));
+  const t = traces.get(icon.key);
+  const state = traceState(icon);
+  if (t && state === "done") {
+    box.append(para(`${t.width} by ${t.height} px, ${t.nodes} path commands, SVG ${(t.svg.length / 1024).toFixed(1)} KB`, "hint small"));
+  }
+  if (state !== "done") {
+    box.append(
+      button(state === "stale" ? "Trace again" : "Trace this icon", async () => {
+        await traceOne(icon);
+        render();
+      }),
+    );
+  }
+  return box;
+}
+
+// The "Traced icons" view: every icon's PNG and SVG, row by row.
+function drawGallery() {
+  if (!review || !sheet || view !== "icons") return;
+  els.gallery.replaceChildren();
+  for (const row of review.rows) {
+    const sec = document.createElement("section");
+    const h = document.createElement("h3");
+    h.textContent = `Row ${row.index}: ${rowCategory(row) || "no category"}`;
+    const grid = document.createElement("div");
+    grid.className = "cards";
+    for (const icon of row.icons) {
+      const card = document.createElement("button");
+      card.type = "button";
+      card.className = `card ${traceState(icon)}${selected.includes(icon.key) ? " selected" : ""}`;
+      card.dataset.key = String(icon.key);
+      card.append(comparePair(icon, false));
+      const cap = document.createElement("span");
+      cap.className = "card-id";
+      cap.textContent = `r${icon.row} c${icon.col}`;
+      card.append(cap);
+      card.addEventListener("click", () => select([icon.key]));
+      grid.append(card);
+    }
+    sec.append(h, grid);
+    els.gallery.append(sec);
+  }
+}
+
+function setView(v: "sheet" | "icons") {
+  view = v;
+  els.viewSheet.setAttribute("aria-pressed", String(v === "sheet"));
+  els.viewIcons.setAttribute("aria-pressed", String(v === "icons"));
+  els.stage.hidden = v !== "sheet";
+  els.legend.hidden = v !== "sheet";
+  els.gallery.hidden = v !== "icons";
+  if (v === "icons") drawGallery();
+  else drawOverlay();
+}
+
+function clearTraces() {
+  for (const t of traces.values()) releaseEntry(t);
+  traces.clear();
+}
+
+// Give the page a moment to redraw. A message-channel hop is not slowed down in
+// background tabs the way setTimeout is.
+function yieldToPage(): Promise<void> {
+  return new Promise((resolve) => {
+    const ch = new MessageChannel();
+    ch.port1.onmessage = () => resolve();
+    ch.port2.postMessage(null);
+  });
+}

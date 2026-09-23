@@ -29,6 +29,7 @@
 
   <div id="workspace" class="workspace" hidden>
     <div id="summary" class="summary"></div>
+    <div id="res-warning" class="res-warning" role="note" hidden></div>
 
     <div class="layout">
       <aside class="panel">
@@ -38,15 +39,23 @@
 
       <div class="sheet-wrap">
         <div class="toolbar" role="toolbar" aria-label="Edit boxes">
+          <span class="views" role="group" aria-label="View">
+            <button id="view-sheet" type="button" class="tool" aria-pressed="true" title="Show the sheet with boxes (V)">Sheet</button>
+            <button id="view-icons" type="button" class="tool" aria-pressed="false" title="Show every traced icon (V)">Traced icons</button>
+          </span>
+          <span class="tool-sep"></span>
           <button id="tool-merge" type="button" class="tool" disabled title="Merge selected boxes (M)">Merge <kbd>M</kbd></button>
           <button id="tool-split" type="button" class="tool" disabled aria-pressed="false" title="Split the selected box with a vertical cut (S)">Split <kbd>S</kbd></button>
           <button id="tool-delete" type="button" class="tool" disabled title="Delete selected boxes (Delete)">Delete <kbd>Del</kbd></button>
           <span class="tool-sep"></span>
           <button id="tool-undo" type="button" class="tool" disabled title="Undo (Ctrl+Z)">Undo</button>
           <button id="tool-redo" type="button" class="tool" disabled title="Redo (Ctrl+Y)">Redo</button>
+          <span class="tool-sep"></span>
+          <button id="tool-trace" type="button" class="tool primary" title="Trace every icon to SVG (T)">Trace all icons</button>
+          <progress id="trace-progress" value="0" max="1" hidden></progress>
           <p id="tool-hint" class="tool-hint"></p>
         </div>
-        <ul class="legend" aria-label="Box colours">
+        <ul id="legend" class="legend" aria-label="Box colours">
           <li><i class="k icon"></i>Icon</li>
           <li><i class="k title"></i>Title strip</li>
           <li><i class="k split"></i>Possible split</li>
@@ -58,12 +67,19 @@
           <img id="sheet" alt="Uploaded symbol sheet">
           <svg id="overlay" class="overlay" preserveAspectRatio="none" aria-hidden="true"></svg>
         </div>
+        <div id="gallery" class="gallery" hidden></div>
       </div>
 
       <aside class="panel">
         <section id="row-tags" class="tags" aria-label="Row tags"></section>
         <h2>Selected icon</h2>
         <div id="detail" class="detail"></div>
+        <details class="split-settings">
+          <summary>Trace settings</summary>
+          <form id="trace-settings" class="settings"></form>
+          <p class="hint small">Changing these marks traced icons out of date; trace again to update them.</p>
+          <button id="trace-reset" type="button" class="ghost small">Reset to defaults</button>
+        </details>
         <details class="split-settings">
           <summary>Split settings</summary>
           <form id="settings" class="settings"></form>

@@ -10,9 +10,17 @@ Raised 2026-09-23 during sheet import milestone 3.
 Could an image model classify icons automatically, for example suggesting a subtype
 ("saguaro", "barrel"), the kind (point or pattern), or which way an icon faces?
 
-- The tool was named as "jev". Confirm which tool is meant. Likely candidates are CLIP
-  (matches an image against text labels such as "a cactus") or Meta's V-JEPA (image and
-  video embeddings, no text labels on its own).
+- The tool named was Jev (TypeSafe AI, https://www.langchain.com/blog/building-a-harness-with-jev).
+  Jev is a fast classifier for **text and structured data, not images**: it answers a
+  fixed-choice, score or yes/no question with a probability. It runs as a paid
+  server-side API (needs a `TYPESAFE_API_KEY`); no licence details were published.
+  - What Jev could do here: classify the OCR'd row title, for example map "skeletons &
+    bones" to a standard category list, suggest `kind` (point or pattern) and `scales`.
+    That is text-in, choice-out, which is what it is built for.
+  - What it cannot do: look at the icon pictures (subtype, facing, duplicates).
+- For the pictures themselves an image model is needed, for example CLIP (matches an
+  image against text labels such as "a cactus"), which can run in the browser or on
+  Cloudflare Workers AI.
 - Where it would run: in the browser (small model download, keeps processing off the
   server as the spec requires) or on Cloudflare Workers AI (server side, which changes
   the spec's "all processing in the browser" rule).
@@ -31,3 +39,33 @@ automatic value is marked "(auto)" in the review grid and can be overridden.
 
 The review tools cannot draw a brand-new box around an icon the splitter missed
 completely. Not in the spec; add it if it turns out to be needed.
+
+## Potrace licence (GPL-2.0)
+
+Raised 2026-09-23 during sheet import milestone 4. **Needs a decision before the import
+page is public for good.**
+
+The spec asks for potrace compiled to WebAssembly. Every available build, including the
+one used (esm-potrace-wasm 0.5.1), is GPL-2.0 because Potrace itself is. Serving it to a
+browser counts as distributing it.
+
+What was done: potrace is served as its own unmodified file
+(`/admin/import/potrace/potrace.js`) with its licence and a link to its source beside it,
+and loaded at run time rather than bundled into the page code. The traced SVG icons are
+program output and are not covered by the GPL.
+
+Options:
+
+1. Put the admin area behind Cloudflare Access (planned before milestone 5 anyway). Only
+   the owner then receives the file, which removes the public distribution question.
+2. Release this repository under GPL-2.0-or-later (or a compatible licence). The repo is
+   public but currently has no licence at all.
+3. Switch to vtracer (MIT licence, also compiled to WebAssembly, also named in the main
+   spec). Output style differs from potrace; would need re-checking against the samples.
+
+## Tracing ink level
+
+Not in the spec. Tracing uses its own ink level (default 128, mid-grey) instead of the
+splitter's threshold (200). At 200, the soft edges left by the 4x enlargement all count as
+ink and fine hatching fills in; 128 keeps the SVG closest to the original drawing. It is
+exposed in Trace settings next to the three potrace settings the spec lists.
