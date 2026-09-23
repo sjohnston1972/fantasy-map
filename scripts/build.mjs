@@ -16,6 +16,18 @@ await build({
   logLevel: "warning",
 });
 
+await build({
+  entryPoints: ["src/library/app.ts"],
+  outfile: "public/admin/library/app.js",
+  bundle: true,
+  format: "esm",
+  target: "es2022",
+  platform: "browser",
+  minify: true,
+  sourcemap: true,
+  logLevel: "warning",
+});
+
 copyFileSync("example artifacts/desert.png", "public/admin/import/sample-desert.png");
 
 const ocr = "public/admin/import/ocr";

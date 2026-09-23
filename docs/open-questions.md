@@ -89,3 +89,11 @@ since those decisions live on the server.
 
 `/admin` is now behind Cloudflare Access (only the owner can sign in), so the potrace file
 is no longer served to the public. Revisit if the import page is ever opened to others.
+
+## Library page limits (milestone 6)
+
+The Library page loads the whole catalogue in one request (the API returns up to 1000
+rows) and filters in the browser. Fine for Phase 1's target of 300 to 500 symbols; add
+paging to `GET /api/import/icons` if the catalogue grows past about 1000. The page
+reads only; it cannot edit tags or un-approve an icon (not in the spec). A stored sheet
+can only be reopened by dropping its file again on the Import page.

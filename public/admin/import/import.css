@@ -224,3 +224,10 @@ button { font: inherit; cursor: pointer; }
 .card.rejected { border-color: var(--no); opacity: 0.6; }
 .card.approved .card-id::after { content: "  approved"; color: var(--ok); }
 .card.rejected .card-id::after { content: "  rejected"; color: var(--no); }
+
+/* Header shared by the admin pages, with links between them. */
+.admin-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-end; gap: 8px 24px; }
+.admin-nav { display: flex; gap: 4px; margin-bottom: 16px; }
+.admin-nav a { color: var(--ink); text-decoration: none; padding: 5px 12px; border: 1.5px solid var(--ink); border-radius: 5px; background: var(--card); }
+.admin-nav a:hover { background: #efe6d2; }
+.admin-nav a[aria-current="page"] { background: var(--ink); color: var(--paper); }

@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Symbol Library</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IM+Fell+English+SC&family=IM+Fell+English:ital@0;1&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../import/import.css">
+  <link rel="stylesheet" href="library.css">
+  <script type="module" src="app.js"></script>
+</head>
+<body>
+  <header class="admin-head">
+    <div>
+      <h1>Symbol Library</h1>
+      <p class="tag">Every icon saved from the sheet importer, by category.</p>
+    </div>
+    <nav class="admin-nav" aria-label="Admin pages">
+      <a href="../import/">Import</a>
+      <a href="./" aria-current="page">Library</a>
+    </nav>
+  </header>
+
+  <p id="status" class="status" role="status" aria-live="polite"></p>
+
+  <form class="filters" role="search">
+    <label class="grow">Search <input id="f-text" type="search" placeholder="category, subtype or id" autocomplete="off"></label>
+    <label>Status
+      <select id="f-status">
+        <option value="approved">Approved</option>
+        <option value="rejected">Rejected</option>
+        <option value="draft">Draft</option>
+        <option value="all">All</option>
+      </select>
+    </label>
+    <label>Scale
+      <select id="f-scale">
+        <option value="">Any</option>
+        <option value="region">Region</option>
+        <option value="world">World</option>
+        <option value="town">Town</option>
+        <option value="dungeon">Dungeon</option>
+      </select>
+    </label>
+    <label>Kind
+      <select id="f-kind">
+        <option value="">Any</option>
+        <option value="point">Point</option>
+        <option value="pattern">Pattern</option>
+      </select>
+    </label>
+    <label>Size <input id="f-size" type="range" min="72" max="220" value="120"></label>
+    <span id="count" class="count"></span>
+  </form>
+
+  <div class="lib-layout">
+    <aside class="panel">
+      <h2>Categories</h2>
+      <ul id="categories" class="categories"></ul>
+    </aside>
+    <main id="grid" class="lib-grid"></main>
+    <aside class="panel">
+      <div id="detail" class="lib-detail"></div>
+    </aside>
+  </div>
+</body>
+</html>

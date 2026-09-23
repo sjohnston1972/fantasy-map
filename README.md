@@ -15,6 +15,7 @@ A free web app that procedurally generates black-and-white, hand-inked fantasy m
 - `src/import/trace.ts`: traces an icon to SVG and a transparent PNG
 - `src/import/tracing.ts`: loads potrace in the browser and keeps the results
 - `src/import/app.ts`: the Sheet Import page at `/admin/import/`
+- `src/library/`: the Symbol Library page at `/admin/library/` (browse saved icons)
 - `docs/open-questions.md`: decisions waiting for an interactive session
 - `test/`: automated checks, run with `npm test`
 - `public/`: static files served to the browser
