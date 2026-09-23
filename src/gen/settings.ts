@@ -19,7 +19,7 @@ export const DEFAULT_SETTINGS: MapSettings = {
   scale: "region",
   seed: 482913,
   width: 1600,
-  height: 2400,
+  height: 2263, // A-paper proportions (1 by 1.414), so maps print on A3 and A4 without margins
   sea_level: 0.35,
   mountain_density: 0.5,
   forest_density: 0.6,

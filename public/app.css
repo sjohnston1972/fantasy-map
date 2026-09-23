@@ -37,11 +37,16 @@ input[type="range"] { width: 100%; accent-color: var(--ink); }
 .note { margin: 0; font-size: 0.8rem; color: var(--faint); border-top: 1px solid var(--rule); padding-top: 10px; }
 
 .stage { margin: 0; display: flex; flex-direction: column; align-items: center; gap: 8px; }
-.stage canvas { display: block; width: auto; height: auto; max-width: 100%; max-height: calc(100vh - 140px); background: #fff; border: 2px solid var(--ink); outline: 1px solid var(--ink); outline-offset: 4px; image-rendering: auto; }
-@media (max-width: 760px) { .stage canvas { max-height: none; width: 100%; } }
+/* The map box takes its shape from the map (set from script) and fits the window height. */
+.map-frame { display: flex; justify-content: center; width: 100%; height: calc(100vh - 110px); }
+.map-box { position: relative; height: 100%; max-width: 100%; background: #fff; box-shadow: 0 1px 6px rgba(0,0,0,0.15); }
+.map, .map svg { display: block; width: 100%; height: 100%; }
+.relief { position: absolute; inset: 0; width: 100%; height: 100%; mix-blend-mode: multiply; opacity: 0.55; pointer-events: none; }
+@media (max-width: 760px) { .map-frame { height: auto; } .map-box { height: auto; width: 100%; } }
+.check { display: flex; align-items: center; gap: 8px; font-size: 0.9rem; }
 .stage figcaption { font-size: 0.85rem; color: var(--faint); text-align: center; }
 
 /* Fade in each newly drawn map. */
-.stage canvas.fresh { animation: ink-in 0.4s ease-out; }
+.map.fresh { animation: ink-in 0.4s ease-out; }
 @keyframes ink-in { from { opacity: 0.25; } to { opacity: 1; } }
-@media (prefers-reduced-motion: reduce) { .stage canvas.fresh { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .map.fresh { animation: none; } }

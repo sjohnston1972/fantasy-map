@@ -126,3 +126,17 @@ can only be reopened by dropping its file again on the Import page.
   worth adding if maps feel too wet or too dry once ink symbols are in.
 - **Speed.** Rivers and lakes add about 0.25 s in Node and up to 0.5 s in the browser; a
   default map now takes about 1 s in total, against the spec's 10 s budget.
+
+## Map milestone 4 decisions (biomes and placeholder symbols)
+
+- **Map shapes are A-paper** (1 by 1.414): portrait 1600 by 2263 and landscape 2263 by 1600,
+  so exports fit A3 and A4 exactly (decided with Steven). The square shape was dropped.
+- **Biomes:** forest, grassland, marsh, mountain (spec), plus desert and tundra (requested).
+  Farmland is laid around towns in milestone 5. Each map gets its own base climate from the
+  seed, colder to the north and with height, so some maps are snowy and some arid.
+- **The map is now drawn as SVG line art** (spec stage 8): inked coastline with two ripple
+  lines out to sea, lake shores, rivers as tapered ink, a double-ruled border, and
+  placeholder symbols. The grey relief is kept as an optional overlay for checking terrain.
+- **Symbol rules:** big features first (mountains, hills), then trees, reeds, dunes, snow
+  and grass; no two overlap by more than 20% of the smaller one; none stand in water or on
+  a river; drawn back to front.

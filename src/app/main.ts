@@ -2,14 +2,15 @@
 // and show it as a grey relief. Everything runs in the visitor's browser.
 
 import { generate, type GeneratedMap } from "../gen/pipeline";
-import { drawRivers, renderRelief } from "../gen/render";
+import { renderRelief } from "../gen/render";
+import { renderSvg } from "../gen/svg";
 import { randomSeed } from "../gen/rng";
 import { cleanSettings, DEFAULT_SETTINGS, type MapSettings } from "../gen/settings";
 
+// A-paper proportions (1 by the square root of 2), so a map prints on A3 or A4 exactly.
 const SHAPES: Record<string, [number, number]> = {
-  portrait: [1600, 2400],
-  landscape: [2400, 1600],
-  square: [2000, 2000],
+  portrait: [1600, 2263],
+  landscape: [2263, 1600],
 };
 
 const $ = <T extends Element>(sel: string) => document.querySelector<T>(sel)!;
@@ -21,11 +22,15 @@ const els = {
   seaOut: $<HTMLOutputElement>("#sea-out"),
   mountains: $<HTMLInputElement>("#mountains"),
   mountainsOut: $<HTMLOutputElement>("#mountains-out"),
-  canvas: $<HTMLCanvasElement>("#map"),
+  map: $<HTMLElement>("#map"),
+  mapBox: $<HTMLElement>("#map-box"),
+  relief: $<HTMLCanvasElement>("#relief"),
+  showRelief: $<HTMLInputElement>("#show-relief"),
   caption: $<HTMLElement>("#caption"),
 };
 
 let settings: MapSettings = { ...DEFAULT_SETTINGS };
+let current: GeneratedMap | null = null;
 
 // Redraw once for a burst of changes while a slider is dragged. A message-channel hop is
 // used rather than an animation frame, which browsers pause in background tabs.
@@ -47,6 +52,7 @@ els.form.addEventListener("submit", (e) => {
 // Sliders and the shape redraw as they change; the seed redraws on Enter or Generate.
 for (const input of [els.sea, els.mountains]) input.addEventListener("input", () => (readForm(), draw()));
 els.shape.addEventListener("change", () => (readForm(), draw()));
+els.showRelief.addEventListener("change", () => current && paintRelief(current));
 
 function readForm() {
   const [width, height] = SHAPES[els.shape.value] ?? SHAPES.portrait;
@@ -80,29 +86,34 @@ function draw() {
     const map = generate(settings);
     paint(map);
     // A short fade-in, so every redraw is visible even when little changes.
-    els.canvas.classList.remove("fresh");
-    void els.canvas.offsetWidth;
-    els.canvas.classList.add("fresh");
+    els.map.classList.remove("fresh");
+    void els.map.offsetWidth;
+    els.map.classList.add("fresh");
     const ms = Math.round(performance.now() - t0);
     const w = map.water;
-    els.caption.textContent = `Seed ${map.settings.seed}, ${map.settings.width} by ${map.settings.height} px: ${Math.round((1 - map.landSea.landShare) * 100)}% sea, ${w.rivers.length} rivers, ${w.lakes} ${w.lakes === 1 ? "lake" : "lakes"}. Generated in ${ms} ms.`;
+    els.caption.textContent = `Seed ${map.settings.seed}: ${w.rivers.length} rivers, ${w.lakes} ${w.lakes === 1 ? "lake" : "lakes"}, ${map.symbols.length} symbols. Generated in ${ms} ms.`;
   };
 }
 
-// The terrain is one pixel per grid cell; the canvas is drawn at twice that so the river
-// lines stay crisp when the page scales it up.
-const DRAW_SCALE = 2;
-
 function paint(map: GeneratedMap) {
+  current = map;
+  const { width, height } = map.settings;
+  els.mapBox.style.aspectRatio = `${width} / ${height}`;
+  els.map.innerHTML = renderSvg({ width, height, water: map.water, symbols: map.symbols });
+  const svg = els.map.querySelector("svg")!;
+  svg.removeAttribute("width");
+  svg.removeAttribute("height");
+  svg.setAttribute("role", "img");
+  svg.setAttribute("aria-label", `Map for seed ${map.settings.seed}: coast, rivers, lakes, mountains, hills and forests in black ink.`);
+  paintRelief(map);
+}
+
+// Optional shaded relief laid over the ink drawing, to check the terrain underneath.
+function paintRelief(map: GeneratedMap) {
+  els.relief.hidden = !els.showRelief.checked;
+  if (els.relief.hidden) return;
   const { cols, rows } = map.height;
-  els.canvas.width = cols * DRAW_SCALE;
-  els.canvas.height = rows * DRAW_SCALE;
-  els.canvas.style.aspectRatio = `${map.settings.width} / ${map.settings.height}`;
-  const relief = new OffscreenCanvas(cols, rows);
-  relief.getContext("2d")!.putImageData(new ImageData(renderRelief(map.height, map.landSea, map.water), cols, rows), 0, 0);
-  const ctx = els.canvas.getContext("2d")!;
-  ctx.imageSmoothingEnabled = true;
-  ctx.drawImage(relief, 0, 0, cols * DRAW_SCALE, rows * DRAW_SCALE);
-  drawRivers(ctx, map.water, DRAW_SCALE);
-  els.canvas.setAttribute("aria-label", `Terrain preview for seed ${map.settings.seed}: land shaded grey by height, sea pale, rivers and lakes in blue.`);
+  els.relief.width = cols;
+  els.relief.height = rows;
+  els.relief.getContext("2d")!.putImageData(new ImageData(renderRelief(map.height, map.landSea, map.water), cols, rows), 0, 0);
 }
