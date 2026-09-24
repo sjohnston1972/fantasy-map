@@ -232,3 +232,32 @@ can only be reopened by dropping its file again on the Import page.
   window could not be resized here).
 - **Speed:** a map draws in about 1.2 to 1.8 s on this machine; the page code is about
   21 KB compressed plus three 58 KB font files, and symbol packs load afterwards.
+
+## After Phase 1: layering, edits in links, gallery, frame
+
+- **Layering** (Steven's request): symbols can be brought forward or sent back past the
+  symbol they overlap (buttons, or ] and [; Shift for all the way). Each symbol has a white
+  outline behind it, so the one in front hides the ink of the one behind. Layering covers
+  mountains, hills, trees and fields; towns, landmarks, banners and names stay on their own
+  layers above them. Moving a symbol does not change its layer.
+- **Share links carry edits** (Steven's choice): `&e=` holds the edits, packed with deflate
+  and URL-safe base64. Links from before this change still work. A link's edits are checked
+  and limited when read (no more than 5,000 changes, 256 KB unpacked).
+- **Gallery** (Steven's choice: both kinds):
+  - *My maps* lives in the browser's local storage: link, name and a small JPEG. It does
+    not follow the visitor to another device. Storage holds roughly 70 maps.
+  - *Everyone's maps* is public. Publishing asks twice, stores only the link, a name and a
+    thumbnail (D1 table `gallery`, pictures in R2 at `gallery/<id>.jpg`), nothing about the
+    person. Limits: 5 publishes a minute per visitor; names up to 60 characters with no web
+    addresses; thumbnails must be real JPEGs up to 480 by 700 and 120 KB; the request must
+    come from the map page.
+  - Entries go live at once; `/admin/gallery/` (behind Access) can hide, show or delete
+    them. **Open question:** is after-the-fact review enough, or should new entries wait
+    for approval? And should visitors be able to report a map?
+  - This goes beyond the spec, which put saved galleries out of Phase 1 and said no maps
+    are stored on the server; Steven asked for it.
+- **Frame and margin:** maps now have plain paper outside a double-ruled border (2.5% of
+  the short side, about 7 mm on A3), and the drawing is scaled about 6% to sit inside it,
+  cut off at the inner rule. The generated map is unchanged, so links still match. The
+  "map check" code under the map changed with the new drawing; the test that pins old
+  links now checks the generated map data instead of the drawing.

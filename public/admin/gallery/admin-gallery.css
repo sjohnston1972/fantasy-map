@@ -1,0 +1,12 @@
+/* Gallery review page. Shares colours and base styles with the import page (import.css). */
+.show-hidden { display: inline-flex; gap: 6px; align-items: center; margin: 0 0 12px; font-size: 0.9rem; }
+.review { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; }
+.review li { background: #fffdf8; border: 1.5px solid var(--rule); border-radius: 6px; padding: 8px; display: flex; flex-direction: column; gap: 4px; font-size: 0.85rem; }
+.review li.hidden-map { border-style: dashed; opacity: 0.75; }
+.review img { width: 100%; aspect-ratio: 1 / 1.1; object-fit: contain; background: #fff; border-radius: 3px; }
+.review .name { font-weight: 600; overflow-wrap: anywhere; }
+.review .meta { color: var(--faint); font-size: 0.78rem; }
+.review .acts { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
+.review button, .review a.open { font: inherit; font-size: 0.8rem; padding: 4px 8px; border: 1.5px solid var(--ink); border-radius: 4px; background: #fff; color: var(--ink); cursor: pointer; text-decoration: none; }
+.review button.danger { border-color: #9b2c1c; color: #9b2c1c; }
+.review button:disabled { opacity: 0.5; cursor: default; }

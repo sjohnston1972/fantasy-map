@@ -9,3 +9,14 @@
 # and its code never get out of step.
 /admin/*
   Cache-Control: no-cache
+
+# The public pages change with deploys too; check for a newer copy each visit (cheap: the
+# server answers "not modified" when nothing changed).
+/
+  Cache-Control: no-cache
+/index.html
+  Cache-Control: no-cache
+/app.js
+  Cache-Control: no-cache
+/gallery/*
+  Cache-Control: no-cache

@@ -9,5 +9,5 @@
     "noEmit": true,
     "skipLibCheck": true
   },
-  "include": ["src/import", "src/library", "src/gen", "src/app"]
+  "include": ["src/import", "src/library", "src/gen", "src/app", "src/gallery", "src/admin-gallery"]
 }

@@ -14,6 +14,7 @@
 // The sliders work in whole per cents, so the per cent values round-trip exactly and the
 // map rebuilt from a code is the same map.
 
+import { NO_EDITS, type Edits } from "../gen/edits";
 import { cleanSettings, type MapSettings } from "../gen/settings";
 
 const SHAPES: Record<string, [number, number]> = { p: [1600, 2263], l: [2263, 1600] };
@@ -55,4 +56,91 @@ export function fingerprint(svg: string): string {
     h = Math.imul(h, 0x01000193);
   }
   return (h >>> 0).toString(36).padStart(6, "0").slice(-6);
+}
+
+// ---- Edits in the link ----
+// Edits travel in a second part of the link (&e=...): a compact list of changes, squeezed
+// with deflate and written in URL-safe base64. Keys are shortened (sym:12 becomes s12).
+
+
+const SHORT: Record<string, string> = { sym: "s", town: "t", landmark: "k", bridge: "b", emblem: "e", label: "l" };
+const LONG = Object.fromEntries(Object.entries(SHORT).map(([k, v]) => [v, k]));
+const MAX_EDITS = 5000; // far more than anyone makes by hand; stops a hostile link hanging the page
+const MAX_BYTES = 256 * 1024;
+
+const shortKey = (key: string) => {
+  const [kind, id] = key.split(":");
+  return SHORT[kind] + id;
+};
+const longKey = (k: string): string | null => {
+  const m = /^([stkbel])(\d{1,6})$/.exec(k);
+  return m ? `${LONG[m[1]]}:${Number(m[2])}` : null;
+};
+const mapKeys = <T>(r: Record<string, T>, f: (k: string) => string | null) => Object.fromEntries(Object.entries(r).flatMap(([k, v]) => (f(k) ? [[f(k)!, v]] : [])));
+
+export function isEmptyEdits(e: Edits): boolean {
+  return !e.deleted.length && ![e.moved, e.variant, e.text, e.z].some((r) => Object.keys(r).length);
+}
+
+export async function encodeEdits(e: Edits): Promise<string> {
+  if (isEmptyEdits(e)) return "";
+  const compact = { m: mapKeys(e.moved, shortKey), d: e.deleted.map(shortKey), v: mapKeys(e.variant, shortKey), t: mapKeys(e.text, shortKey), z: mapKeys(e.z, shortKey) };
+  const bytes = new Uint8Array(await new Response(new Blob([JSON.stringify(compact)]).stream().pipeThrough(new CompressionStream("deflate-raw"))).arrayBuffer());
+  let s = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+// Read edits from a link. Anything malformed gives null; odd values are dropped or clamped,
+// since a link can come from anyone.
+export async function decodeEdits(code: string): Promise<Edits | null> {
+  if (!code) return NO_EDITS;
+  if (!/^[A-Za-z0-9_-]{1,100000}$/.test(code)) return null;
+  try {
+    const bin = atob(code.replace(/-/g, "+").replace(/_/g, "/"));
+    const packed = Uint8Array.from(bin, (c) => c.charCodeAt(0));
+    const reader = new Blob([packed]).stream().pipeThrough(new DecompressionStream("deflate-raw")).getReader();
+    const chunks: Uint8Array<ArrayBuffer>[] = [];
+    let size = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.length;
+      if (size > MAX_BYTES) return null;
+      chunks.push(value as Uint8Array<ArrayBuffer>);
+    }
+    const raw = JSON.parse(new TextDecoder().decode(await new Blob(chunks).arrayBuffer())) as Record<string, unknown>;
+    const obj = (v: unknown) => (v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {});
+    const num = (v: unknown, lo: number, hi: number) => (typeof v === "number" && Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : null);
+    const e: Edits = { moved: {}, deleted: [], variant: {}, text: {}, z: {} };
+    let count = 0;
+    const room = () => ++count <= MAX_EDITS;
+    for (const [k, v] of Object.entries(obj(raw.m))) {
+      const key = longKey(k);
+      const dx = Array.isArray(v) ? num(v[0], -10000, 10000) : null;
+      const dy = Array.isArray(v) ? num(v[1], -10000, 10000) : null;
+      if (key && dx !== null && dy !== null && room()) e.moved[key] = [dx, dy];
+    }
+    for (const k of Array.isArray(raw.d) ? raw.d : []) {
+      const key = typeof k === "string" ? longKey(k) : null;
+      if (key && !e.deleted.includes(key) && room()) e.deleted.push(key);
+    }
+    for (const [k, v] of Object.entries(obj(raw.v))) {
+      const key = longKey(k);
+      const n = num(v, 0, 0.999999);
+      if (key && n !== null && room()) e.variant[key] = n;
+    }
+    for (const [k, v] of Object.entries(obj(raw.t))) {
+      const key = longKey(k);
+      if (key?.startsWith("label:") && typeof v === "string" && v.trim() && room()) e.text[key] = v.replace(/[\u0000-\u001f\u007f]/g, "").slice(0, 60);
+    }
+    for (const [k, v] of Object.entries(obj(raw.z))) {
+      const key = longKey(k);
+      const n = num(v, -1e9, 1e9);
+      if (key?.startsWith("sym:") && n !== null && room()) e.z[key] = n;
+    }
+    return e;
+  } catch {
+    return null;
+  }
 }

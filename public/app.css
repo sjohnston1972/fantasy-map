@@ -70,3 +70,7 @@ input[type="range"] { width: 100%; accent-color: var(--ink); }
 .map [data-key].selected { filter: drop-shadow(0 0 2px var(--focus)) drop-shadow(0 0 2px var(--focus)); }
 .fine { color: var(--faint); font-size: 0.76rem; }
 #share-link { font-size: 0.8rem; }
+.top { position: relative; }
+.top-nav { position: absolute; right: 0; top: 6px; display: flex; gap: 14px; }
+.top-nav a, .fine a, #keep-status a { color: var(--ink); font-weight: 600; }
+#keep-status { font-size: 0.8rem; color: var(--faint); }

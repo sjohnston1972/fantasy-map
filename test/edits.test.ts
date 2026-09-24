@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { pngSize, toBase64 } from "../src/app/export";
-import { applyEdits, editCount, move, NO_EDITS, remove, rename, swap, type EditedMap } from "../src/gen/edits";
+import { applyEdits, editCount, layer, move, NO_EDITS, remove, rename, swap, type EditedMap } from "../src/gen/edits";
+import { boxesOverlap, symBox } from "../src/gen/labels";
 import { toInkSet } from "../src/gen/inkset";
 import { generate } from "../src/gen/pipeline";
 import { DEFAULT_SETTINGS } from "../src/gen/settings";
-import { drawingOf, renderSvg } from "../src/gen/svg";
+import { Resvg } from "@resvg/resvg-js";
+import { drawingOf, frameFor, renderSvg } from "../src/gen/svg";
 
 const map = generate({ ...DEFAULT_SETTINGS, seed: 482913 });
 const drawing = (id: string) => ({ id, w: 40, h: 30, anchorX: 0.5, anchorY: 1, facing: "none", viewBox: "0 0 40 30", body: '<path fill="#000" d="M0 0h40v30z"/>' });
@@ -86,7 +88,7 @@ describe("light editing (spec: move, delete or swap a symbol; rename, move or de
     const b = remove(a, "sym:2");
     expect(a.deleted).toEqual([]);
     expect(editCount(b)).toBe(2);
-    expect(NO_EDITS).toEqual({ moved: {}, deleted: [], variant: {}, text: {} });
+    expect(NO_EDITS).toEqual({ moved: {}, deleted: [], variant: {}, text: {}, z: {} });
   });
 
   it("reuses the drawn ground between edits", () => {
@@ -96,10 +98,76 @@ describe("light editing (spec: move, delete or swap a symbol; rename, move or de
   });
 });
 
+describe("layering (bring forward, send back)", () => {
+  // Two overlapping mountains: a is drawn first (behind), b after it (in front).
+  const pair = (() => {
+    for (let i = 0; i < map.symbols.length; i++)
+      for (let j = i + 1; j < map.symbols.length; j++)
+        if (map.symbols[i].role === "mountain" && map.symbols[j].role === "mountain" && boxesOverlap(symBox(map.symbols[i]), symBox(map.symbols[j]))) return [`sym:${i}`, `sym:${j}`];
+    throw new Error("no overlapping mountains");
+  })();
+  const [a, b] = pair;
+  const at = (svg: string, key: string) => svg.indexOf(`data-key="${key}"`);
+
+  it("draws later symbols in front of earlier ones", () => {
+    const svg = svgOf(applyEdits(map, NO_EDITS));
+    expect(at(svg, a)).toBeLessThan(at(svg, b));
+  });
+
+  it("brings a symbol in front of the one it overlaps", () => {
+    const e = layer(map, NO_EDITS, a, "forward");
+    expect(e).not.toBe(NO_EDITS);
+    const svg = svgOf(applyEdits(map, e));
+    expect(at(svg, a)).toBeGreaterThan(at(svg, b));
+  });
+
+  it("sends a symbol behind the one it overlaps", () => {
+    const svg = svgOf(applyEdits(map, layer(map, NO_EDITS, b, "backward")));
+    expect(at(svg, b)).toBeLessThan(at(svg, a));
+  });
+
+  it("goes all the way to the front or back", () => {
+    const front = applyEdits(map, layer(map, NO_EDITS, a, "front")).symbols;
+    expect(front[front.length - 1].key).toBe(a);
+    const back = applyEdits(map, layer(map, NO_EDITS, b, "back")).symbols;
+    expect(back[0].key).toBe(b);
+  });
+
+  it("can step back and forth repeatedly", () => {
+    let e = NO_EDITS;
+    for (let n = 0; n < 20; n++) e = layer(map, e, a, n % 2 ? "backward" : "forward");
+    const svg = svgOf(applyEdits(map, e));
+    expect(at(svg, a)).toBeLessThan(at(svg, b)); // an even number of swaps puts it back behind
+    expect(editCount(e)).toBe(1);
+  });
+
+  it("does nothing when there is nothing to pass", () => {
+    const e = layer(map, NO_EDITS, a, "front");
+    expect(layer(map, e, a, "front")).toBe(e);
+  });
+});
+
 describe("export", () => {
   it("embeds the typeface in a saved SVG", () => {
     const svg = svgOf(applyEdits(map, NO_EDITS), "@font-face{font-family:'IM Fell English';src:url(data:font/woff2;base64,AAAA)}");
     expect(svg).toMatch(/^<svg[^>]*><defs>.*?<\/defs><style>@font-face/s);
+  });
+
+  it("is a valid standalone SVG file, with nothing drawn in the paper margin", () => {
+    // resvg reads SVG as strict XML, as browsers do for a saved file or an <img>.
+    // A symbol dragged half off the left edge must be cut off at the frame. (Not fully off:
+    // resvg, the test renderer, crashes on an ink symbol clipped away entirely; browsers do not.)
+    const svg = svgOf(applyEdits(map, move(NO_EDITS, "sym:0", -map.symbols[0].x - 10, 0)), "@font-face{font-family:'IM Fell English';src:url(data:font/woff2;base64,AAAA)}");
+    const W = 400;
+    const png = new Resvg(svg, { fitTo: { mode: "width", value: W } }).render();
+    const k = W / map.settings.width;
+    const margin = frameFor(map.settings.width, map.settings.height).margin * k;
+    // Every pixel in the margin band is white.
+    for (let y = 0; y < png.height; y += 3)
+      for (const x of [0, Math.floor(margin / 2), png.width - 1 - Math.floor(margin / 2)]) {
+        const i = (y * png.width + x) * 4;
+        expect(png.pixels[i] + png.pixels[i + 1] + png.pixels[i + 2], `pixel ${x},${y}`).toBeGreaterThan(740);
+      }
   });
 
   it("sizes PNGs for screen and 300 dpi A3", () => {

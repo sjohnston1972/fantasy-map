@@ -9,7 +9,8 @@
   <script type="module" src="app.js"></script>
 </head>
 <body>
-  <header>
+  <header class="top">
+    <nav class="top-nav" aria-label="Pages"><a href="/gallery/">Gallery</a></nav>
     <h1>Ink Fantasy Maps</h1>
     <p class="tag">Hand-inked region maps, drawn fresh from a single number.</p>
   </header>
@@ -61,7 +62,16 @@
         <input id="share-link" type="text" readonly aria-label="Link to this map">
         <button type="button" id="copy-link" class="plain">Copy link</button>
         <output id="share-status" aria-live="polite"></output>
-        <small class="fine">The link rebuilds this map from its settings. Edits are not included.</small>
+        <small class="fine">The link rebuilds this map, with your edits.</small>
+      </div>
+
+      <div class="exports" role="group" aria-labelledby="keep-title">
+        <span id="keep-title" class="group-title">Keep this map</span>
+        <label class="field"><span>Name</span><input id="map-name" type="text" maxlength="60" autocomplete="off"></label>
+        <button type="button" id="save-mine" class="plain">Save to My maps</button>
+        <button type="button" id="publish" class="plain">Publish to the public gallery</button>
+        <output id="keep-status" aria-live="polite"></output>
+        <small class="fine">My maps stay in this browser. Publishing shares the map, its name and a small picture with everyone. <a href="/gallery/">Open the gallery</a></small>
       </div>
 
       <div class="exports" role="group" aria-labelledby="export-title">
@@ -78,6 +88,8 @@
         <button type="button" id="edit-mode" class="plain" aria-pressed="false" aria-controls="edit-tools">Edit the map</button>
         <div id="edit-tools" class="edit-tools" hidden>
           <button type="button" id="swap" class="plain" title="Swap to another drawing (S)">Swap</button>
+          <button type="button" id="forward" class="plain" title="Bring in front of the symbol it overlaps (]); Shift-click for all the way">Bring forward</button>
+          <button type="button" id="backward" class="plain" title="Send behind the symbol it overlaps ([); Shift-click for all the way">Send back</button>
           <button type="button" id="delete" class="plain" title="Remove (Delete)">Delete</button>
           <button type="button" id="undo" class="plain" title="Undo (Ctrl+Z)">Undo</button>
           <form id="rename" class="rename" hidden>
@@ -86,7 +98,7 @@
             <button type="submit" class="plain">Rename</button>
           </form>
           <p id="edit-hint" class="hint" aria-live="polite"></p>
-          <p class="hint keys">Keys: N picks the next item, arrows nudge, S swaps, Delete removes, Ctrl+Z undoes.</p>
+          <p class="hint keys">Keys: N picks the next item, arrows nudge, S swaps, ] and [ bring forward and send back, Delete removes, Ctrl+Z undoes.</p>
         </div>
       </div>
       <div class="map-frame">

@@ -23,6 +23,7 @@ export interface PlacedSymbol {
   h: number;
   variant: number; // which drawing of this role, 0 to 1 (picked from the pack later)
   flip: boolean; // mirrored left to right
+  key?: string; // set by editing ("sym:12"), so an item keeps its name when others move
 }
 
 export const MAX_OVERLAP = 0.2;

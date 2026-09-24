@@ -31,6 +31,29 @@ const baseCache = new WeakMap<Hydrology, { roads: unknown; svg: string }>();
 // bridges): the same place always gets the same drawing, unless the user swaps it.
 const hashVariant = (cell: number, salt: number) => (((cell * salt) >>> 0) % 4294967296) / 4294967296;
 
+// The frame. Like a printed map, the drawing sits inside a double-ruled border with plain
+// paper outside it: nothing is drawn in the margin, and the drawing is cut off cleanly at the
+// inner rule. The generated map is scaled down a little (about 6%) to fit inside, so the map
+// itself (and every share link) stays exactly the same.
+export interface Frame {
+  margin: number; // plain paper outside the outer rule
+  outer: { x: number; y: number; w: number; h: number }; // outer (thick) rule
+  inner: { x: number; y: number; w: number; h: number }; // inner (thin) rule: the drawing's edge
+  scale: number; // map pixels to page pixels inside the frame
+  dx: number; // where the scaled map's corner sits
+  dy: number;
+}
+
+export function frameFor(W: number, H: number): Frame {
+  const margin = Math.round(0.025 * Math.min(W, H)); // about 7 mm on A3
+  const gap = Math.max(4, Math.round(0.005 * Math.min(W, H))); // between the two rules
+  const outer = { x: margin, y: margin, w: W - 2 * margin, h: H - 2 * margin };
+  const inset = margin + gap;
+  const inner = { x: inset, y: inset, w: W - 2 * inset, h: H - 2 * inset };
+  const scale = Math.min(inner.w / W, inner.h / H);
+  return { margin, outer, inner, scale, dx: inner.x + (inner.w - W * scale) / 2, dy: inner.y + (inner.h - H * scale) / 2 };
+}
+
 export function renderSvg(m: SvgInput): string {
   const { width: W, height: H, water: hy } = m;
   const px = W / 1600;
@@ -39,6 +62,10 @@ export function renderSvg(m: SvgInput): string {
   parts.push(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" data-generator="ink-fantasy-maps">`);
   if (m.fontCss) parts.push(`<style>${m.fontCss}</style>`);
   parts.push(`<rect width="${W}" height="${H}" fill="#fff"/>`);
+  const fr = frameFor(W, H);
+  const f = (v: number) => +v.toFixed(3);
+  parts.push(`<clipPath id="frame-clip"><rect x="${fr.inner.x}" y="${fr.inner.y}" width="${fr.inner.w}" height="${fr.inner.h}"/></clipPath>`);
+  parts.push(`<g clip-path="url(#frame-clip)"><g data-content="1" transform="translate(${f(fr.dx)} ${f(fr.dy)}) scale(${f(fr.scale)})">`);
 
   const cached = baseCache.get(hy);
   const roads = m.towns?.roads ?? null;
@@ -73,7 +100,7 @@ export function renderSvg(m: SvgInput): string {
   // Symbols, back to front.
   parts.push(`<g stroke="${INK}" stroke-linejoin="round" stroke-linecap="round">`);
   m.symbols.forEach((s, k) => {
-    const key = (s as PlacedSymbol & { key?: string }).key ?? `sym:${k}`;
+    const key = s.key ?? `sym:${k}`;
     const icon = pickSymbol(m.ink, s.role, s.variant);
     parts.push(icon ? `<g data-key="${key}" data-sym="${key.slice(4)}" data-role="${s.role}">${defs.use(icon, s.x, s.y, s.w, s.h, s.flip, W)}</g>` : placeholder(s, k, key));
   });
@@ -136,9 +163,11 @@ export function renderSvg(m: SvgInput): string {
     if (riverPaths.length) parts.push(`<defs>${riverPaths.join("")}</defs>`);
   }
 
-  // A double-ruled border, as on old engraved maps.
-  parts.push(`<rect x="6" y="6" width="${W - 12}" height="${H - 12}" fill="none" stroke="${INK}" stroke-width="3"/>`);
-  parts.push(`<rect x="14" y="14" width="${W - 28}" height="${H - 28}" fill="none" stroke="${INK}" stroke-width="1"/>`);
+  parts.push(`</g></g>`);
+
+  // A double-ruled border, as on old engraved maps, with plain paper outside it.
+  const rule = (r: Frame["outer"], width: number) => `<rect x="${r.x}" y="${r.y}" width="${r.w}" height="${r.h}" fill="none" stroke="${INK}" stroke-width="${width}"/>`;
+  parts.push(rule(fr.outer, 3 * px), rule(fr.inner, 1.2 * px));
   parts.push(`</svg>`);
   // Drawings used on this map, defined once and reused by reference.
   parts.splice(1, 0, defs.markup());
@@ -341,7 +370,7 @@ export function drawingOf(m: Pick<SvgInput, "symbols" | "towns" | "labels">, key
   const [kind, idText] = key.split(":");
   const id = Number(idText);
   if (kind === "sym") {
-    const s = m.symbols.find((s, k) => ((s as PlacedSymbol & { key?: string }).key ?? `sym:${k}`) === key);
+    const s = m.symbols.find((s, k) => (s.key ?? `sym:${k}`) === key);
     return s ? { role: s.role, variant: s.variant } : null;
   }
   if (kind === "town") {

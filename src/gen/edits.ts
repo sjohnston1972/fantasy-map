@@ -3,9 +3,14 @@
 // into it, so the generator stays deterministic and every edit can be undone by dropping
 // it from the list. Each item on the map has a key: "sym:12", "town:3", "landmark:1",
 // "bridge:4", "emblem:0" or "label:7".
+//
+// Layering: symbols (mountains, hills, trees, fields) are drawn back to front, and each has
+// a white outline behind it, so one drawn later hides the ink of any it overlaps. A symbol's
+// place in that order is its layer: its original position unless the visitor brought it
+// forward or sent it back, which is how a range of peaks or a forest edge is built up.
 
 import type { Label, Labelling } from "./labels";
-import { textWidth } from "./labels";
+import { boxesOverlap, symBox, textWidth } from "./labels";
 import type { GeneratedMap } from "./pipeline";
 import type { Settlements } from "./settlements";
 import type { PlacedSymbol } from "./symbols";
@@ -15,9 +20,10 @@ export interface Edits {
   deleted: string[];
   variant: Record<string, number>; // key -> which drawing (0 to 1)
   text: Record<string, string>; // label key -> new wording
+  z: Record<string, number>; // symbol key -> layer (higher is in front); default is its number
 }
 
-export const NO_EDITS: Edits = { moved: {}, deleted: [], variant: {}, text: {} };
+export const NO_EDITS: Edits = { moved: {}, deleted: [], variant: {}, text: {}, z: {} };
 
 export type EditedMap = Pick<GeneratedMap, "settings" | "water"> & {
   symbols: PlacedSymbol[];
@@ -31,13 +37,15 @@ export function applyEdits(m: GeneratedMap, e: Edits): EditedMap {
   const gone = new Set(e.deleted);
   const shift = (key: string) => e.moved[key] ?? [0, 0];
 
-  const symbols: PlacedSymbol[] = [];
+  const layered: { s: PlacedSymbol; z: number }[] = [];
   m.symbols.forEach((s, k) => {
     const key = `sym:${k}`;
     if (gone.has(key)) return;
     const [dx, dy] = shift(key);
-    symbols.push({ ...s, x: s.x + dx, y: s.y + dy, variant: e.variant[key] ?? s.variant, key } as PlacedSymbol & { key: string });
+    layered.push({ s: { ...s, x: s.x + dx, y: s.y + dy, variant: e.variant[key] ?? s.variant, key }, z: e.z?.[key] ?? k });
   });
+  // Sort is stable, so symbols without a layer change keep the generator's order.
+  const symbols = layered.sort((a, b) => a.z - b.z).map((l) => l.s);
 
   const towns: Settlements = {
     ...m.towns,
@@ -95,7 +103,9 @@ export function applyEdits(m: GeneratedMap, e: Edits): EditedMap {
 // Edits are values: every change returns a new Edits, so undo is just the previous one.
 export function move(e: Edits, key: string, dx: number, dy: number): Edits {
   const [x, y] = e.moved[key] ?? [0, 0];
-  return { ...e, moved: { ...e.moved, [key]: [x + dx, y + dy] } };
+  // Kept to a tenth of a pixel, so edits stay short when written into a share link.
+  const r = (v: number) => Math.round(v * 10) / 10;
+  return { ...e, moved: { ...e.moved, [key]: [r(x + dx), r(y + dy)] } };
 }
 
 export function remove(e: Edits, key: string): Edits {
@@ -106,7 +116,8 @@ export function remove(e: Edits, key: string): Edits {
 export function swap(e: Edits, key: string, current: number, count: number): Edits {
   if (count < 2) return e;
   const index = Math.min(count - 1, Math.floor(current * count));
-  return { ...e, variant: { ...e.variant, [key]: ((index + 1) % count + 0.5) / count } };
+  const next = ((index + 1) % count + 0.5) / count;
+  return { ...e, variant: { ...e.variant, [key]: Math.round(next * 1e4) / 1e4 } };
 }
 
 export function rename(e: Edits, key: string, text: string): Edits {
@@ -116,5 +127,38 @@ export function rename(e: Edits, key: string, text: string): Edits {
 }
 
 export function editCount(e: Edits): number {
-  return Object.keys(e.moved).length + e.deleted.length + Object.keys(e.variant).length + Object.keys(e.text).length;
+  return Object.keys(e.moved).length + e.deleted.length + Object.keys(e.variant).length + Object.keys(e.text).length + Object.keys(e.z ?? {}).length;
 }
+
+export type LayerMove = "forward" | "backward" | "front" | "back";
+
+// Move a symbol one step in front of (or behind) the nearest symbol it overlaps, or all the
+// way to the front or back. Returns the edits unchanged when there is nothing to pass.
+export function layer(m: GeneratedMap, e: Edits, key: string, how: LayerMove): Edits {
+  const order = applyEdits(m, e).symbols;
+  const zOf = (s: PlacedSymbol) => {
+    const k = keyOf(s);
+    return e.z?.[k] ?? Number(k.slice(4));
+  };
+  const i = order.findIndex((s) => keyOf(s) === key);
+  if (i < 0) return e;
+  let z: number | null = null;
+  if (how === "front") z = i === order.length - 1 ? null : Math.floor(zOf(order[order.length - 1])) + 1;
+  else if (how === "back") z = i === 0 ? null : Math.ceil(zOf(order[0])) - 1;
+  else {
+    const box = symBox(order[i]);
+    const step = how === "forward" ? 1 : -1;
+    for (let j = i + step; j >= 0 && j < order.length; j += step) {
+      if (!boxesOverlap(box, symBox(order[j]))) continue;
+      // Land between the overlapping symbol and its neighbour on the far side.
+      const far = order[j + step];
+      const zj = zOf(order[j]);
+      z = far ? (zj + zOf(far)) / 2 : zj + step;
+      break;
+    }
+  }
+  if (z === null) return e;
+  return { ...e, z: { ...e.z, [key]: Math.round(z * 1e6) / 1e6 } };
+}
+
+const keyOf = (s: PlacedSymbol) => s.key!;

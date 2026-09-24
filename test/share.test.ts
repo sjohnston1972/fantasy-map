@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { decodeSettings, encodeSettings, fingerprint } from "../src/app/share";
+import { decodeEdits, decodeSettings, encodeEdits, encodeSettings, fingerprint } from "../src/app/share";
+import { applyEdits, layer, move, NO_EDITS, remove, rename, swap } from "../src/gen/edits";
 import { generate } from "../src/gen/pipeline";
 import { cleanSettings, DEFAULT_SETTINGS, type MapSettings } from "../src/gen/settings";
 import { renderSvg } from "../src/gen/svg";
@@ -51,8 +52,63 @@ describe("share links (spec: share link rebuilds the identical map in another br
   // Links already shared must keep drawing the same map. If this fails because the generator
   // was changed on purpose, old links now draw a different map: bump the settings' v field
   // and keep the old generator for v1 links (see docs/open-questions.md).
-  it("draws the same map for a known link as when this generator was released", () => {
-    expect(fingerprint(plainSvg(decodeSettings("1.acm9.p.35.50.60.5")!.settings))).toBe(GOLDEN);
+  // The generated map itself (places, symbols, names), not the drawing, so restyling the
+  // renderer does not count as a change.
+  it("generates the same map for a known link as when this generator was released", () => {
+    const m = generate(decodeSettings("1.acm9.p.35.50.60.5")!.settings);
+    const data = JSON.stringify([m.symbols, m.towns.places, m.towns.roads.map((r) => r.cells), m.labels.labels.map((l) => [l.text, l.x, l.y]), m.water.rivers.map((r) => r.cells)]);
+    expect(fingerprint(data)).toBe(GOLDEN);
+  });
+});
+
+describe("edits in share links", () => {
+  const map = generate(DEFAULT_SETTINGS);
+
+  it("leaves the edits part out when there are none", async () => {
+    expect(await encodeEdits(NO_EDITS)).toBe("");
+    expect(await decodeEdits("")).toEqual(NO_EDITS);
+  });
+
+  it("carries every kind of edit through a link exactly", async () => {
+    let e = move(NO_EDITS, "sym:3", 12.34, -5.01);
+    e = remove(e, "town:2");
+    e = swap(e, "sym:7", 0.1, 3);
+    e = rename(e, "label:4", "Dragon's Rest & Co <b>");
+    e = layer(map, e, "sym:3", "front");
+    const code = await encodeEdits(e);
+    expect(code).toMatch(/^[A-Za-z0-9_-]+$/);
+    expect(await decodeEdits(code)).toEqual(e);
+    const plain = (m: ReturnType<typeof applyEdits>) =>
+      fingerprint(renderSvg({ width: m.settings.width, height: m.settings.height, water: m.water, symbols: m.symbols, towns: m.towns, labels: m.labels }));
+    expect(plain(applyEdits(map, (await decodeEdits(code))!))).toBe(plain(applyEdits(map, e)));
+  });
+
+  it("stays short for a typical session of edits", async () => {
+    let e = NO_EDITS;
+    for (let k = 0; k < 40; k++) e = move(e, `sym:${k * 7}`, k * 1.5, -k);
+    for (let k = 0; k < 10; k++) e = remove(e, `sym:${k * 11 + 3}`);
+    expect((await encodeEdits(e)).length).toBeLessThan(700);
+  });
+
+  it("refuses broken or hostile edits", async () => {
+    expect(await decodeEdits("not base64 at all!")).toBeNull();
+    expect(await decodeEdits("AAAA")).toBeNull();
+    // A small link that inflates to something huge (a "zip bomb") is refused.
+    const bomb = JSON.stringify({ t: { l1: "x".repeat(2_000_000) } });
+    const packed = new Uint8Array(await new Response(new Blob([bomb]).stream().pipeThrough(new CompressionStream("deflate-raw"))).arrayBuffer());
+    expect(await decodeEdits(Buffer.from(packed).toString("base64url"))).toBeNull();
+  });
+
+  it("drops unknown keys and clamps odd values", async () => {
+    const raw = JSON.stringify({ m: { s1: [1e12, 2], x9: [1, 1], s2: "no" }, d: ["t1", "zz", 5], v: { s3: 7 }, t: { s4: "not a label", l2: "Ok" }, z: { l3: 1 } });
+    const packed = new Uint8Array(await new Response(new Blob([raw]).stream().pipeThrough(new CompressionStream("deflate-raw"))).arrayBuffer());
+    expect(await decodeEdits(Buffer.from(packed).toString("base64url"))).toEqual({
+      moved: { "sym:1": [10000, 2] },
+      deleted: ["town:1"],
+      variant: { "sym:3": 0.999999 },
+      text: { "label:2": "Ok" },
+      z: {},
+    });
   });
 });
 
@@ -70,4 +126,4 @@ describe("settings panel", () => {
   });
 });
 
-const GOLDEN = "m9uqo1"; // seed 482913, default settings, generator v1
+const GOLDEN = "r9akb3"; // seed 482913, default settings, generator v1 // seed 482913, default settings, generator v1

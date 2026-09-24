@@ -28,6 +28,10 @@ public/admin/library/app.js.map
 public/app.js
 public/app.js.map
 public/fonts/
+public/gallery/gallery.js
+public/gallery/gallery.js.map
+public/admin/gallery/app.js
+public/admin/gallery/app.js.map
 
 # Local copies of the icon sheets; the loose PNGs are committed
 example artifacts/*.zip

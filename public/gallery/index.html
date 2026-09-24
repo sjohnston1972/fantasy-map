@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Map Gallery · Ink Fantasy Maps</title>
+  <link rel="stylesheet" href="../fonts/fonts.css">
+  <link rel="stylesheet" href="../app.css">
+  <link rel="stylesheet" href="gallery.css">
+  <script type="module" src="gallery.js"></script>
+</head>
+<body>
+  <header class="top">
+    <nav class="top-nav" aria-label="Pages"><a href="/">Make a map</a></nav>
+    <h1>Map Gallery</h1>
+    <p class="tag">Maps kept for later, and maps others have shared.</p>
+  </header>
+
+  <div class="tabs" role="tablist" aria-label="Which maps">
+    <button type="button" role="tab" id="tab-mine" aria-controls="panel-mine" aria-selected="true">My maps</button>
+    <button type="button" role="tab" id="tab-everyone" aria-controls="panel-everyone" aria-selected="false" tabindex="-1">Everyone's maps</button>
+  </div>
+
+  <section id="panel-mine" role="tabpanel" aria-labelledby="tab-mine">
+    <p class="intro">Maps you saved with "Save to My maps". They are kept in this browser only.</p>
+    <ul id="mine" class="cards"></ul>
+    <p id="mine-empty" class="empty" hidden>No saved maps yet. <a href="/">Make a map</a> and press "Save to My maps".</p>
+  </section>
+
+  <section id="panel-everyone" role="tabpanel" aria-labelledby="tab-everyone" hidden>
+    <p class="intro">Maps people have published. Open one to see it full size, edit your own copy or save it.</p>
+    <ul id="everyone" class="cards"></ul>
+    <p id="everyone-status" class="empty" aria-live="polite"></p>
+    <button type="button" id="more" class="plain" hidden>Show more maps</button>
+  </section>
+</body>
+</html>

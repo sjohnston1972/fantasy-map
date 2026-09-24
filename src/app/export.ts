@@ -50,8 +50,9 @@ export function saveBlob(blob: Blob, name: string) {
   setTimeout(() => URL.revokeObjectURL(url), 10_000);
 }
 
-// Draw an SVG (with its fonts embedded) onto a canvas and return it as a PNG.
-export async function svgToPng(svg: string, width: number, height: number): Promise<Blob> {
+// Draw an SVG (with its fonts embedded) onto a canvas of the given size and save it in
+// the given image format.
+async function svgToImage(svg: string, width: number, height: number, type: "image/png" | "image/jpeg", quality?: number): Promise<Blob> {
   const url = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml" }));
   try {
     const img = new Image();
@@ -66,10 +67,23 @@ export async function svgToPng(svg: string, width: number, height: number): Prom
     ctx.fillStyle = "#fff";
     ctx.fillRect(0, 0, width, height);
     ctx.drawImage(img, 0, 0, width, height);
-    const blob = await new Promise<Blob | null>((done) => canvas.toBlob(done, "image/png"));
-    if (!blob) throw new Error("This browser could not make a PNG that large.");
+    const blob = await new Promise<Blob | null>((done) => canvas.toBlob(done, type, quality));
+    if (!blob) throw new Error("This browser could not make an image that large.");
     return blob;
   } finally {
     URL.revokeObjectURL(url);
   }
+}
+
+export const svgToPng = (svg: string, width: number, height: number) => svgToImage(svg, width, height, "image/png");
+
+// Small JPEG preview for the gallery: at most 360 by 680 pixels (the server accepts up to
+// 480 by 700).
+export function thumbSize(mapWidth: number, mapHeight: number): [number, number] {
+  const k = Math.min(360 / mapWidth, 680 / mapHeight);
+  return [Math.max(1, Math.round(mapWidth * k)), Math.max(1, Math.round(mapHeight * k))];
+}
+export async function svgToThumb(svg: string, mapWidth: number, mapHeight: number): Promise<Blob> {
+  const [w, h] = thumbSize(mapWidth, mapHeight);
+  return svgToImage(svg, w, h, "image/jpeg", 0.8);
 }

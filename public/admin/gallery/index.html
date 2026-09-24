@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Gallery Review</title>
+  <link rel="stylesheet" href="../../fonts/fonts.css">
+  <link rel="stylesheet" href="../import/import.css">
+  <link rel="stylesheet" href="admin-gallery.css">
+  <script type="module" src="app.js"></script>
+</head>
+<body>
+  <header class="admin-head">
+    <div>
+      <h1>Gallery Review</h1>
+      <p class="tag">Every map published to the public gallery. Hide one to take it down; delete removes it for good.</p>
+    </div>
+    <nav class="admin-nav" aria-label="Admin pages">
+      <a href="../import/">Import</a>
+      <a href="../library/">Library</a>
+      <a href="./" aria-current="page">Gallery</a>
+    </nav>
+  </header>
+
+  <p id="status" class="status" role="status" aria-live="polite"></p>
+  <label class="show-hidden"><input id="only-hidden" type="checkbox"> Show hidden maps only</label>
+  <ul id="maps" class="review"></ul>
+</body>
+</html>

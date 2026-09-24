@@ -24,8 +24,10 @@ beforeAll(async () => {
     }),
   );
   const db = await mf.getD1Database("DB");
-  const sql = readFileSync("migrations/0001_import.sql", "utf8").replace(/--.*$/gm, "");
-  for (const stmt of sql.split(";").map((s) => s.trim()).filter(Boolean)) await db.prepare(stmt).run();
+  for (const file of ["0001_import.sql", "0002_gallery.sql"]) {
+    const sql = readFileSync(`migrations/${file}`, "utf8").replace(/--.*$/gm, "");
+    for (const stmt of sql.split(";").map((s) => s.trim()).filter(Boolean)) await db.prepare(stmt).run();
+  }
   const hash = Buffer.from(await crypto.subtle.digest("SHA-256", SHEET_BYTES)).toString("hex");
   SHEET_ID = hash.slice(0, 16);
 }, 60000);
@@ -239,5 +241,80 @@ describe("symbol packs and the public catalogue", () => {
   it("refuses odd pack names", async () => {
     expect((await publicGet("packs/..%2Fsheets%2Fx.json")).status).toBe(404);
     expect((await publicGet("packs/mountain.json")).status).toBe(404);
+  });
+});
+
+// A minimal JPEG: start marker, a JFIF header, a frame header giving the size, filler, end.
+function fakeJpeg(w: number, h: number): Buffer {
+  const app0 = [0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01, 0x01, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00];
+  const sof = [0xff, 0xc0, 0x00, 0x11, 0x08, h >> 8, h & 255, w >> 8, w & 255, 0x03, 1, 0x22, 0, 2, 0x11, 1, 3, 0x11, 1];
+  return Buffer.from([0xff, 0xd8, ...app0, ...sof, ...new Array(300).fill(0), 0xff, 0xd9]);
+}
+
+describe("public map gallery", () => {
+  const gallery = (path = "", init?: RequestInit) => mf.dispatchFetch(`${BASE}/api/gallery${path}`, init as never);
+  const publish = (body: Record<string, unknown>, origin = BASE) =>
+    gallery("", { method: "POST", body: JSON.stringify(body), headers: { "Content-Type": "application/json", Origin: origin } });
+  const good = () => ({ name: "  The   Northern Reaches ", code: "1.acm9.p.35.50.60.5", edits: "q1YqzjMsKinKzU", thumb: fakeJpeg(360, 509).toString("base64") });
+  let id = "";
+
+  it("publishes a map and lists it, newest first", async () => {
+    const res = await publish(good());
+    expect(res.status).toBe(201);
+    const made = (await res.json()) as { id: string; name: string };
+    expect(made.id).toMatch(/^[0-9a-f]{12}$/);
+    expect(made.name).toBe("The Northern Reaches");
+    id = made.id;
+    await publish({ ...good(), name: "Second map", edits: "" });
+    const list = (await (await gallery()).json()) as { maps: { id: string; name: string; code: string; edits: string }[]; next: string | null };
+    expect(list.maps.map((m) => m.name)).toEqual(["Second map", "The Northern Reaches"]);
+    expect(list.maps[1]).toMatchObject({ id, code: "1.acm9.p.35.50.60.5", edits: "q1YqzjMsKinKzU" });
+    expect(list.next).toBeNull();
+  });
+
+  it("serves the thumbnail as a JPEG", async () => {
+    const res = await gallery(`/${id}.jpg`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Content-Type")).toBe("image/jpeg");
+    expect(Buffer.from(await res.arrayBuffer()).equals(fakeJpeg(360, 509))).toBe(true);
+  });
+
+  it("only accepts maps sent from the map page", async () => {
+    expect((await publish(good(), "https://evil.example")).status).toBe(403);
+    expect((await gallery("", { method: "POST", body: JSON.stringify(good()), headers: { "Content-Type": "application/json" } })).status).toBe(403);
+  });
+
+  it("refuses bad names, codes, edits and thumbnails", async () => {
+    for (const name of ["", "   ", "x".repeat(61), "Visit www.spam.example", "https://spam", "cheap pills.com", 42]) expect((await publish({ ...good(), name })).status, String(name)).toBe(400);
+    for (const code of ["", "1.acm9.q.35.50.60.5", "1.acm9.p.35.50.60.5;drop", "<b>"]) expect((await publish({ ...good(), code })).status, code).toBe(400);
+    expect((await publish({ ...good(), edits: "has spaces" })).status).toBe(400);
+    expect((await publish({ ...good(), thumb: PNG_1x1.toString("base64") })).status).toBe(400);
+    expect((await publish({ ...good(), thumb: fakeJpeg(2000, 3000).toString("base64") })).status).toBe(400);
+    expect((await publish({ ...good(), thumb: Buffer.alloc(130 * 1024, 1).toString("base64") })).status).toBe(400);
+    expect((await gallery("", { method: "POST", body: "{", headers: { "Content-Type": "application/json", Origin: BASE } })).status).toBe(400);
+  });
+
+  it("lets the admin hide a map, which takes it off the public gallery", async () => {
+    const admin = (await (await call("gallery")).json()) as { maps: { id: string; hidden: number }[] };
+    expect(admin.maps.find((m) => m.id === id)?.hidden).toBe(0);
+    const res = await call(`gallery/${id}`, { method: "PATCH", body: JSON.stringify({ hidden: true }), headers: { "Content-Type": "application/json" } });
+    expect(res.status).toBe(200);
+    const list = (await (await gallery()).json()) as { maps: { id: string }[] };
+    expect(list.maps.some((m) => m.id === id)).toBe(false);
+    expect((await gallery(`/${id}.jpg`)).status).toBe(404);
+    expect((await call(`gallery/${id}.jpg`)).status).toBe(200); // the admin can still see it
+    await call(`gallery/${id}`, { method: "PATCH", body: JSON.stringify({ hidden: false }), headers: { "Content-Type": "application/json" } });
+    expect((await gallery(`/${id}.jpg`)).status).toBe(200);
+  });
+
+  it("lets the admin delete a map and its thumbnail", async () => {
+    expect((await call(`gallery/${id}`, { method: "DELETE" })).status).toBe(200);
+    expect((await call(`gallery/${id}.jpg`)).status).toBe(404);
+    expect((await call(`gallery/${id}`, { method: "DELETE" })).status).toBe(404);
+  });
+
+  it("keeps the admin routes behind sign-in", async () => {
+    const res = await mf.dispatchFetch("https://maps.example/api/import/gallery");
+    expect(res.status).toBe(401);
   });
 });

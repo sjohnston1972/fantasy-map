@@ -4,10 +4,11 @@
 import { generate, type GeneratedMap } from "../gen/pipeline";
 import { renderRelief } from "../gen/render";
 import { toInkSet, type InkSet, type InkSymbol } from "../gen/inkset";
-import { drawingOf, renderSvg } from "../gen/svg";
-import { applyEdits, editCount, move, NO_EDITS, remove, rename, swap, type EditedMap, type Edits } from "../gen/edits";
-import { embeddedFontCss, pngSize, saveBlob, svgToPng } from "./export";
-import { decodeSettings, encodeSettings, fingerprint } from "./share";
+import { drawingOf, frameFor, renderSvg } from "../gen/svg";
+import { applyEdits, editCount, layer, move, NO_EDITS, remove, rename, swap, type EditedMap, type Edits, type LayerMove } from "../gen/edits";
+import { embeddedFontCss, pngSize, saveBlob, svgToPng, svgToThumb, toBase64 } from "./export";
+import { saveMyMap } from "./mymaps";
+import { decodeEdits, decodeSettings, encodeEdits, encodeSettings, fingerprint } from "./share";
 import { randomSeed } from "../gen/rng";
 import { cleanSettings, DEFAULT_SETTINGS, type MapSettings } from "../gen/settings";
 
@@ -33,6 +34,10 @@ const els = {
   shareLink: $<HTMLInputElement>("#share-link"),
   copyLink: $<HTMLButtonElement>("#copy-link"),
   shareStatus: $<HTMLOutputElement>("#share-status"),
+  mapName: $<HTMLInputElement>("#map-name"),
+  saveMine: $<HTMLButtonElement>("#save-mine"),
+  publish: $<HTMLButtonElement>("#publish"),
+  keepStatus: $<HTMLOutputElement>("#keep-status"),
   map: $<HTMLElement>("#map"),
   mapBox: $<HTMLElement>("#map-box"),
   relief: $<HTMLCanvasElement>("#relief"),
@@ -42,6 +47,8 @@ const els = {
   editTools: $<HTMLElement>("#edit-tools"),
   swap: $<HTMLButtonElement>("#swap"),
   del: $<HTMLButtonElement>("#delete"),
+  forward: $<HTMLButtonElement>("#forward"),
+  backward: $<HTMLButtonElement>("#backward"),
   undo: $<HTMLButtonElement>("#undo"),
   rename: $<HTMLFormElement>("#rename"),
   labelText: $<HTMLInputElement>("#label-text"),
@@ -53,7 +60,8 @@ const els = {
 };
 
 // A share link (?map=code) opens the map it names; otherwise the page starts on a new seed.
-const shared = decodeSettings(new URLSearchParams(location.search).get("map") ?? "");
+const params = new URLSearchParams(location.search);
+const shared = decodeSettings(params.get("map") ?? "");
 let settings: MapSettings = shared?.settings ?? { ...DEFAULT_SETTINGS, seed: randomSeed() };
 let current: GeneratedMap | null = null;
 let ink: InkSet | undefined; // hand-inked symbols, once the packs have loaded
@@ -64,6 +72,9 @@ let undoStack: Edits[] = [];
 let edited: EditedMap | null = null;
 let selected: string | null = null;
 let editing = false;
+// Edits carried by the link, applied to the first map drawn.
+let linkEdits: Edits | null = shared ? await decodeEdits(params.get("e") ?? "") : null;
+const badLinkEdits = !!shared && !!params.get("e") && !linkEdits;
 
 // Redraw once for a burst of changes while a slider is dragged. A message-channel hop is
 // used rather than an animation frame, which browsers pause in background tabs.
@@ -140,7 +151,8 @@ function draw() {
     const t0 = performance.now();
     const map = generate(settings);
     // A new map starts with no edits; they belong to the map they were made on.
-    edits = NO_EDITS;
+    edits = linkEdits ?? NO_EDITS;
+    linkEdits = null;
     undoStack = [];
     selected = null;
     paint(map);
@@ -155,7 +167,13 @@ function draw() {
     // same for everyone who opens the same link.
     const print = fingerprint(renderSvg({ width: map.settings.width, height: map.settings.height, water: map.water, symbols: map.symbols, towns: map.towns, labels: map.labels }));
     els.caption.textContent = `Seed ${map.settings.seed}: ${t.places.length} settlements, ${t.roads.length} roads, ${t.bridges.length} bridges, ${w.rivers.length} rivers, ${w.lakes} ${w.lakes === 1 ? "lake" : "lakes"}. Drawn in ${ms} ms. Map check ${print}.`;
-    showShareLink(map.settings);
+    void updateLink();
+    // Suggest the capital's name as the map's name; a new map clears any typed name.
+    els.mapName.value = "";
+    els.mapName.placeholder = map.labels.labels.find((l) => l.kind === "capital")?.text ?? `Map ${map.settings.seed}`;
+    confirmPublish = false;
+    els.publish.textContent = "Publish to the public gallery";
+    els.keepStatus.textContent = "";
   };
 }
 
@@ -187,6 +205,10 @@ function paintRelief(map: GeneratedMap) {
   els.relief.width = cols;
   els.relief.height = rows;
   els.relief.getContext("2d")!.putImageData(new ImageData(renderRelief(map.height, map.landSea, map.water), cols, rows), 0, 0);
+  // Line the relief up with the drawing inside the frame.
+  const { width: W, height: H } = map.settings;
+  const fr = frameFor(W, H);
+  Object.assign(els.relief.style, { left: `${(fr.dx / W) * 100}%`, top: `${(fr.dy / H) * 100}%`, width: `${fr.scale * 100}%`, height: `${fr.scale * 100}%` });
 }
 
 // ---- Light editing ----
@@ -208,6 +230,7 @@ function commit(next: Edits) {
   undoStack.push(edits);
   edits = next;
   paint(current);
+  void updateLink();
 }
 
 els.undo.addEventListener("click", undo);
@@ -216,10 +239,23 @@ function undo() {
   if (!prev || !current) return;
   edits = prev;
   paint(current);
+  void updateLink();
 }
 
 els.del.addEventListener("click", () => selected && commit(remove(edits, selected)));
 els.swap.addEventListener("click", swapSelected);
+// Shift-click goes all the way to the front or back.
+els.forward.addEventListener("click", (e) => layerSelected(e.shiftKey ? "front" : "forward"));
+els.backward.addEventListener("click", (e) => layerSelected(e.shiftKey ? "back" : "backward"));
+function layerSelected(how: LayerMove) {
+  if (!selected?.startsWith("sym:") || !current) return;
+  const next = layer(current, edits, selected, how);
+  if (next === edits) {
+    els.editHint.textContent = how === "forward" || how === "front" ? "Already in front of everything it touches." : "Already behind everything it touches.";
+    return;
+  }
+  commit(next);
+}
 function swapSelected() {
   if (!selected || !edited) return;
   const d = drawingOf(edited, selected);
@@ -250,6 +286,7 @@ function showSelection() {
   const isLabel = !!selected?.startsWith("label:");
   const d = selected && edited ? drawingOf(edited, selected) : null;
   els.del.disabled = !selected;
+  els.forward.disabled = els.backward.disabled = !selected?.startsWith("sym:");
   els.swap.disabled = !d || (ink?.[d.role]?.length ?? 0) < 2;
   els.undo.disabled = undoStack.length === 0;
   els.rename.hidden = !isLabel;
@@ -258,7 +295,9 @@ function showSelection() {
   els.editHint.textContent = selected
     ? isLabel
       ? "Drag to move, change the wording below, or press Delete."
-      : `Drag to move, press S to swap the drawing, or Delete to remove it.`
+      : selected.startsWith("sym:")
+        ? "Drag to move, S swaps the drawing, ] brings it in front of what it overlaps and [ sends it behind (Shift for all the way), Delete removes it."
+        : "Drag to move, press S to swap the drawing, or Delete to remove it."
     : `Click a symbol, town or name to pick it.${n ? ` ${n} ${n === 1 ? "change" : "changes"} so far.` : ""}`;
 }
 
@@ -272,7 +311,8 @@ els.map.addEventListener("pointerdown", (e) => {
   const key = el.dataset.key!;
   select(key);
   const svg = els.map.querySelector("svg")!;
-  const scale = svg.viewBox.baseVal.width / svg.getBoundingClientRect().width;
+  // Screen pixels to map pixels: the page scale, and the frame's slight shrink inside it.
+  const scale = svg.viewBox.baseVal.width / svg.getBoundingClientRect().width / frameFor(svg.viewBox.baseVal.width, svg.viewBox.baseVal.height).scale;
   drag = { key, el, x: e.clientX, y: e.clientY, scale, base: el.getAttribute("transform") ?? "", dx: 0, dy: 0 };
   try {
     els.map.setPointerCapture(e.pointerId);
@@ -303,7 +343,8 @@ els.map.addEventListener("dblclick", () => {
   if (editing && selected?.startsWith("label:")) els.labelText.select();
 });
 
-// Keyboard: N and Shift+N step through the items, arrows nudge, S swaps, Delete removes,
+// Keyboard: N and Shift+N step through the items, arrows nudge, S swaps, ] and [ layer
+// (Shift for all the way), Delete removes,
 // Escape lets go, and Ctrl+Z undoes.
 document.addEventListener("keydown", (e) => {
   if (!editing) return;
@@ -324,6 +365,8 @@ document.addEventListener("keydown", (e) => {
   else if (!selected) return;
   else if (e.key === "Delete" || e.key === "Backspace") commit(remove(edits, selected));
   else if (e.key.toLowerCase() === "s") swapSelected();
+  else if (e.code === "BracketRight") layerSelected(e.shiftKey ? "front" : "forward");
+  else if (e.code === "BracketLeft") layerSelected(e.shiftKey ? "back" : "backward");
   else if (nudge[e.key]) commit(move(edits, selected, ...nudge[e.key]));
   else return;
   e.preventDefault();
@@ -366,14 +409,21 @@ async function exporting(what: string, job: (map: EditedMap) => Promise<void>) {
 // ---- Share link ----
 // The address bar always holds the current map's link, so copying the address shares it too.
 
-function showShareLink(s: MapSettings) {
+// Links are rebuilt after every change; a newer rebuild wins if two overlap.
+let linkRun = 0;
+async function updateLink() {
+  if (!current) return;
+  const run = ++linkRun;
+  const e = await encodeEdits(edits);
+  if (run !== linkRun) return;
   const url = new URL(location.href);
-  url.search = `?map=${encodeSettings(s)}`;
+  url.search = `?map=${encodeSettings(current.settings)}${e ? `&e=${e}` : ""}`;
   url.hash = "";
   history.replaceState(null, "", url);
   els.shareLink.value = url.href;
-  els.shareStatus.value = "";
 }
+
+if (badLinkEdits) els.shareStatus.value = "The edits in this link could not be read, so the map is shown without them.";
 
 if (shared && shared.version !== DEFAULT_SETTINGS.v) {
   els.shareStatus.value = "This link was made with a different version of the generator, so the map may differ slightly.";
@@ -390,3 +440,60 @@ els.copyLink.addEventListener("click", async () => {
   }
 });
 els.shareLink.addEventListener("focus", () => els.shareLink.select());
+
+// ---- My maps and the public gallery ----
+
+let confirmPublish = false;
+
+els.saveMine.addEventListener("click", () => keepMap("mine"));
+els.publish.addEventListener("click", () => {
+  // Publishing is public, so the first press explains and the second one publishes.
+  if (!confirmPublish) {
+    confirmPublish = true;
+    els.publish.textContent = "Yes, publish it";
+    els.keepStatus.textContent = "This shows the map, its name and a small picture to everyone who visits the gallery. Press again to publish.";
+    return;
+  }
+  confirmPublish = false;
+  els.publish.textContent = "Publish to the public gallery";
+  void keepMap("public");
+});
+
+async function keepMap(where: "mine" | "public") {
+  if (!edited || !current) return;
+  const map = edited;
+  const name = (els.mapName.value.trim() || els.mapName.placeholder).slice(0, 60);
+  const buttons = [els.saveMine, els.publish];
+  buttons.forEach((b) => (b.disabled = true));
+  els.keepStatus.textContent = "Drawing a small picture of the map...";
+  try {
+    const { width, height } = map.settings;
+    const thumb = new Uint8Array(await (await svgToThumb(svgFor(map, await embeddedFontCss()), width, height)).arrayBuffer());
+    const code = encodeSettings(map.settings);
+    const e = await encodeEdits(edits);
+    if (where === "mine") {
+      saveMyMap({ name, code, edits: e, thumb: `data:image/jpeg;base64,${toBase64(thumb)}` });
+      showKept(`Saved "${name}" to My maps. `, "/gallery/#mine", "See My maps");
+    } else {
+      const res = await fetch("/api/gallery", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, code, edits: e, thumb: toBase64(thumb) }),
+      });
+      const body = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) throw new Error(body.error ?? `the server said ${res.status}`);
+      showKept(`Published "${name}". `, "/gallery/#everyone", "See the gallery");
+    }
+  } catch (err) {
+    els.keepStatus.textContent = `Sorry, that did not work: ${(err as Error).message}`;
+  } finally {
+    buttons.forEach((b) => (b.disabled = false));
+  }
+}
+
+function showKept(text: string, href: string, linkText: string) {
+  const a = document.createElement("a");
+  a.href = href;
+  a.textContent = linkText;
+  els.keepStatus.replaceChildren(text, a);
+}
