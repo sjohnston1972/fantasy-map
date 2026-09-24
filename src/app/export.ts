@@ -6,6 +6,7 @@
 const FONTS = [
   { file: "im-fell-english-latin-400-normal.woff2", family: "IM Fell English", style: "normal" },
   { file: "im-fell-english-latin-400-italic.woff2", family: "IM Fell English", style: "italic" },
+  { file: "im-fell-english-sc-latin-400-normal.woff2", family: "IM Fell English SC", style: "normal" },
 ];
 
 let fontCss: Promise<string> | null = null;

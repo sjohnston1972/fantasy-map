@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { boxesOverlap, emblemBox, symBox, textWidth } from "../src/gen/labels";
+import { boxesOverlap, compassBox, emblemBox, symBox, textWidth, titleFrame } from "../src/gen/labels";
 import { cultureAt, Namer } from "../src/gen/names";
 import { generate } from "../src/gen/pipeline";
 import { rng } from "../src/gen/rng";
@@ -94,5 +94,25 @@ describe("names", () => {
   it("estimates wider text for capitals and letter spacing", () => {
     expect(textWidth("Harrow", 20, true, 0)).toBeGreaterThan(textWidth("Harrow", 20, false, 0));
     expect(textWidth("Harrow", 20, false, 0.2)).toBeGreaterThan(textWidth("Harrow", 20, false, 0));
+  });
+});
+
+describe("title and compass (generator version 3)", () => {
+  it("gives every map a title named for its capital, and a compass, clear of other lettering", () => {
+    for (const m of maps) {
+      const title = m.labels.labels.filter((l) => l.kind === "title");
+      const compass = m.labels.labels.filter((l) => l.kind === "compass");
+      expect(title.length, `seed ${m.settings.seed}`).toBe(1);
+      expect(compass.length).toBe(1);
+      const capital = m.labels.labels.find((l) => l.kind === "capital")!;
+      expect(title[0].text).toContain(capital.text);
+      expect(title[0].box).toEqual(titleFrame(title[0]));
+      expect(compass[0].box).toEqual(compassBox(compass[0]));
+    }
+  });
+
+  it("leaves maps from earlier links without them", () => {
+    const old = generate({ ...DEFAULT_SETTINGS, seed: 482913, v: 2 });
+    expect(old.labels.labels.some((l) => l.kind === "title" || l.kind === "compass")).toBe(false);
   });
 });

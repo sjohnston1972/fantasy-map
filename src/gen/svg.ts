@@ -6,7 +6,7 @@
 import { outlines, simplify, smoothLoop, type Pt } from "./contours";
 import { WATER_LAKE, WATER_SEA, type Hydrology } from "./hydrology";
 import { pickSymbol, type InkSet, type InkSymbol } from "./inkset";
-import type { Emblem, Label, Labelling } from "./labels";
+import { compassBox, textWidth, titleFrame, type Emblem, type Label, type Labelling } from "./labels";
 import type { Bridge, Landmark, Settlement, Settlements } from "./settlements";
 import type { PlacedSymbol } from "./symbols";
 
@@ -158,7 +158,9 @@ function itemDrawer(m: SvgInput, defs: InkDefs) {
     symbol(s: PlacedSymbol, k: number): string {
       const key = s.key ?? `sym:${k}`;
       const icon = pickSymbol(m.ink, s.role, s.variant);
-      return icon ? `<g data-key="${key}" data-sym="${key.slice(4)}" data-role="${s.role}">${defs.use(icon, s.x, s.y, s.w, s.h, s.flip, W)}</g>` : placeholder(s, k, key);
+      const name = s.name ? addedName(s) : "";
+      if (icon) return `<g data-key="${key}" data-sym="${key.slice(4)}" data-role="${s.role}">${defs.use(icon, s.x, s.y, s.w, s.h, s.flip, W)}${name}</g>`;
+      return name ? placeholder(s, k, key).replace(/<\/g>$/, `${name}</g>`) : placeholder(s, k, key);
     },
     landmark(l: Landmark): string {
       const icon = pickSymbol(m.ink, "landmark", l.variant ?? hashVariant(l.cell, 2246822519));
@@ -188,6 +190,8 @@ function itemDrawer(m: SvgInput, defs: InkDefs) {
     // A name, and for a river name the path its letters follow (kept in the river-paths defs).
     label(l: Label): { markup: string; path?: string } {
       const key = `label:${l.id}`;
+      if (l.kind === "title") return { markup: titleMarkup(l, key) };
+      if (l.kind === "compass") return { markup: compassMarkup(l, key) };
       const text = escapeXml(l.caps ? l.text.toUpperCase() : l.text);
       const style = `font-size="${l.size.toFixed(1)}"${l.italic ? ' font-style="italic"' : ""}${l.spacing ? ` letter-spacing="${(l.spacing * l.size).toFixed(1)}"` : ""} stroke-width="${(l.size * 0.22).toFixed(1)}"`;
       if (l.path) {
@@ -200,6 +204,78 @@ function itemDrawer(m: SvgInput, defs: InkDefs) {
       return { markup: `<text data-key="${key}" data-label="${l.id}" data-kind="${l.kind}" x="${l.x.toFixed(1)}" y="${l.y.toFixed(1)}" text-anchor="${l.anchor}" ${style}>${text}</text>` };
     },
   };
+}
+
+// A map title: small capitals in a white box with a double rule and a diamond at each corner.
+function titleMarkup(l: Label, key: string): string {
+  const f = titleFrame(l);
+  const s = l.size;
+  const n = (v: number) => v.toFixed(1);
+  const inset = s * 0.18;
+  const d = s * 0.16;
+  const diamonds = [
+    [f.x, f.y],
+    [f.x + f.w, f.y],
+    [f.x, f.y + f.h],
+    [f.x + f.w, f.y + f.h],
+  ]
+    .map(([x, y]) => `M${n(x)} ${n(y - d)}L${n(x + d)} ${n(y)}L${n(x)} ${n(y + d)}L${n(x - d)} ${n(y)}Z`)
+    .join("");
+  return (
+    `<g data-key="${key}" data-label="${l.id}" data-kind="title">` +
+    `<rect x="${n(f.x)}" y="${n(f.y)}" width="${n(f.w)}" height="${n(f.h)}" fill="#fff" stroke="${INK}" stroke-width="${n(s * 0.07)}"/>` +
+    `<rect x="${n(f.x + inset)}" y="${n(f.y + inset)}" width="${n(f.w - 2 * inset)}" height="${n(f.h - 2 * inset)}" fill="none" stroke="${INK}" stroke-width="${(s * 0.025).toFixed(2)}"/>` +
+    `<path d="${diamonds}" fill="${INK}" stroke="none"/>` +
+    `<text x="${n(l.x)}" y="${n(l.y)}" text-anchor="middle" font-family="'IM Fell English SC', 'IM Fell English', Georgia, serif" font-size="${n(s)}" letter-spacing="${n(l.spacing * s)}" stroke="none" fill="${INK}">${escapeXml(l.caps ? l.text.toUpperCase() : l.text)}</text></g>`
+  );
+}
+
+// A compass rose: eight points, each half black and half white as on engraved maps, in a
+// ringed white disc, with the N above.
+function compassMarkup(l: Label, key: string): string {
+  const R = l.size;
+  const { x: cx, y: cy } = l;
+  const n = (v: number) => v.toFixed(1);
+  const parts: string[] = [];
+  for (let i = 0; i < 8; i++) {
+    const a = (i * Math.PI) / 4;
+    const cardinal = i % 2 === 0;
+    const len = cardinal ? R * 0.95 : R * 0.55;
+    const half = cardinal ? R * 0.13 : R * 0.09;
+    const tip = [cx + Math.sin(a) * len, cy - Math.cos(a) * len];
+    const left = [cx - Math.cos(a) * half, cy - Math.sin(a) * half];
+    const right = [cx + Math.cos(a) * half, cy + Math.sin(a) * half];
+    // Ordinal points go behind the cardinal ones.
+    const draw = (p: number[], fill: string) => `<path d="M${n(cx)} ${n(cy)}L${n(tip[0])} ${n(tip[1])}L${n(p[0])} ${n(p[1])}Z" fill="${fill}" stroke="${INK}" stroke-width="${(R * 0.02).toFixed(2)}" stroke-linejoin="round"/>`;
+    const shape = draw(left, INK) + draw(right, "#fff");
+    if (cardinal) parts.push(shape);
+    else parts.unshift(shape);
+  }
+  return (
+    `<g data-key="${key}" data-label="${l.id}" data-kind="compass">` +
+    `<circle cx="${n(cx)}" cy="${n(cy)}" r="${n(R * 0.72)}" fill="#fff" stroke="${INK}" stroke-width="${(R * 0.03).toFixed(2)}"/>` +
+    `<circle cx="${n(cx)}" cy="${n(cy)}" r="${n(R * 0.62)}" fill="none" stroke="${INK}" stroke-width="${(R * 0.012).toFixed(2)}"/>` +
+    parts.join("") +
+    `<text x="${n(cx)}" y="${n(cy - R * 1.05)}" text-anchor="middle" font-family="'IM Fell English SC', 'IM Fell English', Georgia, serif" font-size="${n(R * 0.34)}" stroke="none" fill="${INK}">N</text></g>`
+  );
+}
+
+// Where an added settlement's name goes and how it is set: beside the drawing, sized with
+// it, in the same styles as generated names (cities in spaced capitals, villages in italics).
+export function addedNameLayout(s: Pick<PlacedSymbol, "role" | "x" | "y" | "w" | "h" | "name">): { x: number; y: number; size: number; caps: boolean; italic: boolean; spacing: number; box: { x: number; y: number; w: number; h: number } } {
+  const size = s.w * 0.3;
+  const role: string = s.role; // added drawings can be any kind, not only generated ones
+  const caps = role === "capital";
+  const spacing = caps ? 0.08 : 0;
+  const x = s.x + s.w * 0.5 + size * 0.2;
+  const y = s.y - s.h * 0.25;
+  return { x, y, size, caps, italic: role === "village", spacing, box: { x, y: y - size * 0.8, w: textWidth(s.name ?? "", size, caps, spacing), h: size } };
+}
+
+function addedName(s: PlacedSymbol): string {
+  const l = addedNameLayout(s);
+  const text = escapeXml(l.caps ? s.name!.toUpperCase() : s.name!);
+  return `<text x="${l.x.toFixed(1)}" y="${l.y.toFixed(1)}" font-family="'IM Fell English', Georgia, serif" font-size="${l.size.toFixed(1)}"${l.italic ? ' font-style="italic"' : ""}${l.spacing ? ` letter-spacing="${(l.spacing * l.size).toFixed(1)}"` : ""} fill="${INK}" stroke="#fff" stroke-width="${(l.size * 0.22).toFixed(1)}" stroke-linejoin="round" paint-order="stroke">${text}</text>`;
 }
 
 // The layer each kind of item is drawn in (see renderSvg).

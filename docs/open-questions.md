@@ -380,3 +380,20 @@ can only be reopened by dropping its file again on the Import page.
   banner along (unless they were picked too). Added towns still have no name.
 - The "map check" code changed once more, because the drawing now groups items by layer; the
   generated maps themselves are unchanged.
+
+## Generator version 3: title box and compass rose; named added towns
+
+- New maps (links starting `3.`) get a **title** in a framed box, named for the capital in
+  the style of its region ("The Jarldom of ...", "The Kingdom of ...", "The Principality of
+  ..."), and a **compass rose**. Each goes in the emptiest spot along the map's edges,
+  preferring open sea, clear of towns and names; symbols under them are cleared, as for
+  names. Both behave like names in the editor (move, delete, resize); the title can be
+  reworded, the compass cannot. Links from earlier versions are unchanged.
+- **Towns placed from the palette get a name** in the naming style of that part of the map.
+  It is drawn as part of the town, so it moves and resizes with it; picking the town opens
+  the wording box, and clearing the wording removes the name but keeps the town. Copies
+  made with copy and paste are unnamed.
+- Saved SVGs now also carry the small-capitals typeface the title uses.
+- Open: a scale bar under the title, border styles, and a choice of title wording are
+  natural next steps (Phase 2 lists "compass rose, border decoration and title cartouche
+  options").

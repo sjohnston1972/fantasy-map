@@ -327,6 +327,42 @@ test.describe("editing with a mouse", () => {
     }
   });
 
+  test("a new map has a title box and compass that can be moved and the title renamed", async ({ page }) => {
+    await open(page, "/?map=3.acm9.p.35.50.60.5");
+    await editMode(page);
+    const title = await page.evaluate(() => document.querySelector<SVGElement>('#map [data-kind="title"]')!.dataset.key!);
+    await expect(page.locator('#map [data-kind="compass"]')).toHaveCount(1);
+    const b0 = await box(page, title);
+    await page.mouse.click(centre(b0).x, centre(b0).y);
+    await expect(page.locator("#rename")).toBeVisible();
+    await page.locator("#label-text").fill("The Isles of Wonder");
+    await page.locator("#label-text").press("Enter");
+    await expect(item(page, title)).toContainText("THE ISLES OF WONDER");
+    const b1 = await box(page, title);
+    await drag(page, centre(b1), { x: centre(b1).x + 30, y: centre(b1).y - 40 });
+    const b2 = await box(page, title);
+    expect(b2.x - b1.x).toBeCloseTo(30, 0);
+  });
+
+  test("a town placed from the palette gets a name that can be changed", async ({ page }) => {
+    await open(page);
+    await editMode(page);
+    await page.locator("#add-open").click();
+    await page.locator("#pal-role").selectOption("town");
+    await page.locator("#pal-grid .pal-item").first().click();
+    const map = (await page.locator("#map").boundingBox())!;
+    await page.mouse.click(map.x + map.width * 0.5, map.y + map.height * 0.45);
+    const town = page.locator('#map [data-key^="add:"]');
+    await expect(town.locator("text")).toHaveCount(1);
+    const name = await town.locator("text").textContent();
+    expect(name!.length).toBeGreaterThan(2);
+    await page.locator("#pal-done").click();
+    await expect(page.locator("#label-text")).toHaveValue(name!);
+    await page.locator("#label-text").fill("Dragonford");
+    await page.locator("#label-text").press("Enter");
+    await expect(town.locator("text")).toHaveText("Dragonford");
+  });
+
   test("saves SVG and PNG files", async ({ page }) => {
     await open(page);
     const [svg] = await Promise.all([page.waitForEvent("download"), page.locator("#export-svg").click()]);

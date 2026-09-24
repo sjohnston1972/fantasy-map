@@ -6,7 +6,8 @@
 // generator keeps each version's behaviour, so an old link still draws the same map.
 //   1: first release.
 //   2: forests grow in stands of one kind of tree, drawn close and overlapping.
-export const GENERATOR_VERSION = 2;
+//   3: a title in a framed box and a compass rose.
+export const GENERATOR_VERSION = 3;
 
 export interface MapSettings {
   v: number;

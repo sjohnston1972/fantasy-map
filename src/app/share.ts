@@ -85,7 +85,7 @@ export function isEmptyEdits(e: Edits): boolean {
 
 export async function encodeEdits(e: Edits): Promise<string> {
   if (isEmptyEdits(e)) return "";
-  const added = Object.fromEntries(Object.entries(e.added).map(([k, a]) => [shortKey(k), [a.role, a.x, a.y, a.w, a.h, a.variant, a.flip ? 1 : 0]]));
+  const added = Object.fromEntries(Object.entries(e.added).map(([k, a]) => [shortKey(k), [a.role, a.x, a.y, a.w, a.h, a.variant, a.flip ? 1 : 0, ...(a.name ? [a.name] : [])]]));
   const compact = { m: mapKeys(e.moved, shortKey), d: e.deleted.map(shortKey), v: mapKeys(e.variant, shortKey), t: mapKeys(e.text, shortKey), z: mapKeys(e.z, shortKey), a: added, r: mapKeys(e.scale, shortKey) };
   const bytes = new Uint8Array(await new Response(new Blob([JSON.stringify(compact)]).stream().pipeThrough(new CompressionStream("deflate-raw"))).arrayBuffer());
   let s = "";
@@ -134,7 +134,8 @@ export async function decodeEdits(code: string): Promise<Edits | null> {
     }
     for (const [k, v] of Object.entries(obj(raw.t))) {
       const key = longKey(k);
-      if (key?.startsWith("label:") && typeof v === "string" && v.trim() && room()) e.text[key] = v.replace(/[\u0000-\u001f\u007f]/g, "").slice(0, 60);
+      // Names' wording; an added town's name may also be cleared (empty).
+      if (key && (key.startsWith("label:") ? typeof v === "string" && v.trim() : key.startsWith("add:") && typeof v === "string") && room()) e.text[key] = (v as string).replace(/[\u0000-\u001f\u007f]/g, "").slice(0, 60);
     }
     for (const [k, v] of Object.entries(obj(raw.z))) {
       const key = longKey(k);
@@ -149,10 +150,10 @@ export async function decodeEdits(code: string): Promise<Edits | null> {
     for (const [k, v] of Object.entries(obj(raw.a))) {
       const key = longKey(k);
       if (!key?.startsWith("add:") || !Array.isArray(v) || !room()) continue;
-      const [role, x, y, w, h, variant, flip] = v;
+      const [role, x, y, w, h, variant, flip, name] = v;
       const nums = [num(x, -1000, 10000), num(y, -1000, 10000), num(w, 2, 600), num(h, 2, 600), num(variant, 0, 0.999999)];
       if (typeof role !== "string" || !/^[a-z]{2,20}$/.test(role) || nums.some((n) => n === null)) continue;
-      e.added[key] = { role, x: nums[0]!, y: nums[1]!, w: nums[2]!, h: nums[3]!, variant: nums[4]!, flip: flip === 1 };
+      e.added[key] = { role, x: nums[0]!, y: nums[1]!, w: nums[2]!, h: nums[3]!, variant: nums[4]!, flip: flip === 1, ...(typeof name === "string" && name.trim() ? { name: name.replace(/[\u0000-\u001f\u007f]/g, "").slice(0, 40) } : {}) };
     }
     return e;
   } catch {

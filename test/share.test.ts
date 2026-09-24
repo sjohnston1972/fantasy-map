@@ -15,14 +15,14 @@ describe("share links (spec: share link rebuilds the identical map in another br
 
   it("packs the settings into a short code", () => {
     const code = encodeSettings(settings);
-    expect(code).toBe("2.acm9.l.42.70.25.9");
-    expect(encodeSettings(DEFAULT_SETTINGS)).toBe("2.acm9.p.35.50.60.5");
+    expect(code).toBe("3.acm9.l.42.70.25.9");
+    expect(encodeSettings(DEFAULT_SETTINGS)).toBe("3.acm9.p.35.50.60.5");
     expect(code.length).toBeLessThan(30);
     expect(encodeURIComponent(code)).toBe(code); // safe in a URL as it is
   });
 
   it("reads a code back to exactly the same settings", () => {
-    expect(decodeSettings(encodeSettings(settings))).toEqual({ settings, version: 2 });
+    expect(decodeSettings(encodeSettings(settings))).toEqual({ settings, version: 3 });
     // A link made before version 2 keeps version 1, so it draws the map it always did.
     expect(decodeSettings("1.acm9.l.42.70.25.9")?.settings).toEqual({ ...settings, v: 1 });
     // A link from a newer version than this page knows is drawn with the newest it has.
@@ -83,6 +83,8 @@ describe("edits in share links", () => {
     e = move(e, "add:1", 3, 4);
     e = layer(map, e, "add:1", "back");
     e = resize(resize(e, "add:1", 1.7), "label:4", 0.8);
+    e = addSymbol(e, { role: "village", x: 500, y: 600, w: 40, h: 40, variant: 0.125, flip: false, name: "Little Ashford" }).edits;
+    e = rename(e, "add:2", "");
     const code = await encodeEdits(e);
     expect(code).toMatch(/^[A-Za-z0-9_-]+$/);
     expect(await decodeEdits(code)).toEqual(e);

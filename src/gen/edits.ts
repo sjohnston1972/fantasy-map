@@ -17,7 +17,7 @@
 // generated symbols, and can then be moved, swapped, layered or deleted the same way.
 
 import type { Label, Labelling } from "./labels";
-import { boxesOverlap, symBox, textWidth } from "./labels";
+import { boxesOverlap, compassBox, symBox, textWidth, titleFrame } from "./labels";
 import type { GeneratedMap } from "./pipeline";
 import type { Settlements } from "./settlements";
 import type { PlacedSymbol } from "./symbols";
@@ -30,6 +30,7 @@ export interface AddedSymbol {
   h: number;
   variant: number; // which drawing of the role, 0 to 1
   flip: boolean;
+  name?: string; // for a village, town or city: its name, drawn beside it
 }
 
 export interface Edits {
@@ -79,7 +80,8 @@ export function applyEdits(m: GeneratedMap, e: Edits): EditedMap {
     if (gone.has(key)) continue;
     const [dx, dy] = shift(key);
     const r = size(key);
-    layered.push({ s: { ...a, role: a.role as PlacedSymbol["role"], x: a.x + dx, y: a.y + dy, w: a.w * r, h: a.h * r, variant: e.variant[key] ?? a.variant, key }, z: e.z?.[key] ?? defaultZ(key) });
+    const name = e.text[key] ?? a.name;
+    layered.push({ s: { ...a, role: a.role as PlacedSymbol["role"], x: a.x + dx, y: a.y + dy, w: a.w * r, h: a.h * r, variant: e.variant[key] ?? a.variant, key, name: name || undefined }, z: e.z?.[key] ?? defaultZ(key) });
   }
   // Sort is stable, so symbols without a layer change keep the generator's order.
   const symbols = layered.sort((a, b) => a.z - b.z).map((l) => l.s);
@@ -114,6 +116,10 @@ export function applyEdits(m: GeneratedMap, e: Edits): EditedMap {
       const [dx, dy] = shift(key);
       const text = e.text[key] ?? l.text;
       const r = size(key);
+      if (l.kind === "title" || l.kind === "compass") {
+        const d = { ...l, text: l.kind === "title" ? text : l.text, size: l.size * r, x: l.x + dx, y: l.y + dy };
+        return { ...d, box: l.kind === "title" ? titleFrame(d) : compassBox(d) };
+      }
       const fontSize = l.size * r;
       const w = text === l.text && r === 1 ? l.box.w : textWidth(text, fontSize, l.caps, l.spacing);
       // Keep the anchor point where it was when the wording or size changes; the lettering
@@ -176,7 +182,7 @@ export function swap(e: Edits, key: string, current: number, count: number): Edi
 
 export function rename(e: Edits, key: string, text: string): Edits {
   const clean = text.replace(/\s+/g, " ").trim().slice(0, 60);
-  if (!clean) return remove(e, key);
+  if (!clean) return key.startsWith("add:") ? { ...e, text: { ...e.text, [key]: "" } } : remove(e, key);
   return { ...e, text: { ...e.text, [key]: clean } };
 }
 
@@ -189,7 +195,7 @@ export function addSymbol(e: Edits, a: AddedSymbol): { edits: Edits; key: string
   const n = Math.max(0, ...Object.keys(e.added ?? {}).map((k) => Number(k.slice(4)))) + 1;
   const key = `add:${n}`;
   const r = (v: number, k = 10) => Math.round(v * k) / k;
-  const clean: AddedSymbol = { role: a.role, x: r(a.x), y: r(a.y), w: r(a.w), h: r(a.h), variant: r(a.variant, 1e4), flip: a.flip };
+  const clean: AddedSymbol = { role: a.role, x: r(a.x), y: r(a.y), w: r(a.w), h: r(a.h), variant: r(a.variant, 1e4), flip: a.flip, ...(a.name ? { name: a.name.slice(0, 40) } : {}) };
   return { edits: { ...e, added: { ...e.added, [key]: clean } }, key };
 }
 

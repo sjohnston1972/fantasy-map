@@ -25,6 +25,7 @@ export interface PlacedSymbol {
   variant: number; // which drawing of this role, 0 to 1 (picked from the pack later)
   flip: boolean; // mirrored left to right
   key?: string; // set by editing ("sym:12"), so an item keeps its name when others move
+  name?: string; // a settlement placed by the visitor can carry its own name
 }
 
 export const MAX_OVERLAP = 0.2;

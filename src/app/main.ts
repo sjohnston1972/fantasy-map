@@ -4,7 +4,9 @@
 import { generate, type GeneratedMap } from "../gen/pipeline";
 import { renderRelief } from "../gen/render";
 import { toInkSet, type InkSet, type InkSymbol } from "../gen/inkset";
-import { asDrawing, drawingOf, drawnBoxOf, frameFor, layerOrder, renderItems, renderSvg } from "../gen/svg";
+import { addedNameLayout, asDrawing, drawingOf, drawnBoxOf, frameFor, layerOrder, renderItems, renderSvg } from "../gen/svg";
+import { cultureAt, Namer } from "../gen/names";
+import { rng, stageSeed } from "../gen/rng";
 import { addSymbol, applyEdits, changedKeys, editCount, isSymbolKey, layer, move, NO_EDITS, remove, rename, resize, swap, type AddedSymbol, type EditedMap, type Edits, type LayerMove } from "../gen/edits";
 import { embeddedFontCss, pngSize, saveBlob, svgToPng, svgToThumb, toBase64 } from "./export";
 import { saveMyMap } from "./mymaps";
@@ -449,7 +451,15 @@ function hits(): Hit[] {
     if (d) list.push({ key, ...drawnBoxOf(d, ink) });
   };
   map.towns.bridges.forEach((b, k) => add(`bridge:${b.index ?? k}`));
-  map.symbols.forEach((sym, k) => list.push({ key: sym.key ?? `sym:${k}`, ...drawnBoxOf(sym, ink) }));
+  map.symbols.forEach((sym, k) => {
+    const b = drawnBoxOf(sym, ink);
+    if (!sym.name) return list.push({ key: sym.key ?? `sym:${k}`, ...b });
+    // An added town's name counts as part of it.
+    const n = addedNameLayout(sym).box;
+    const x = Math.min(b.x, n.x);
+    const y = Math.min(b.y, n.y);
+    list.push({ key: sym.key!, x, y, w: Math.max(b.x + b.w, n.x + n.w) - x, h: Math.max(b.y + b.h, n.y + n.h) - y });
+  });
   for (const l of map.towns.landmarks) add(`landmark:${l.id}`);
   for (const p of map.towns.places) add(`town:${p.id}`);
   map.labels.emblems.forEach((em, k) => add(`emblem:${em.index ?? k}`));
@@ -580,7 +590,7 @@ function swapSelected() {
 els.rename.addEventListener("submit", (e) => {
   e.preventDefault();
   const key = primary();
-  if (picked.length === 1 && key?.startsWith("label:")) commit(rename(edits, key, els.labelText.value));
+  if (picked.length === 1 && key && (key.startsWith("label:") || key.startsWith("add:"))) commit(rename(edits, key, els.labelText.value));
   els.map.focus({ preventScroll: true });
 });
 
@@ -609,7 +619,12 @@ function showSelection() {
     return !!el;
   });
   const one = picked.length === 1 ? picked[0] : null;
-  const isLabel = !!one?.startsWith("label:");
+  // Names can be reworded, and so can the settlements added from the palette (their name);
+  // the compass cannot.
+  const oneLabel = one?.startsWith("label:") ? edited?.labels.labels.find((l) => `label:${l.id}` === one) : undefined;
+  const oneAdded = one?.startsWith("add:") ? edited?.symbols.find((s) => s.key === one) : undefined;
+  const isSettlement = !!oneAdded && ["village", "town", "capital"].includes(oneAdded.role);
+  const isLabel = (!!oneLabel && oneLabel.kind !== "compass") || isSettlement;
   const swappable = picked.some((key) => {
     const d = edited ? drawingOf(edited, key) : null;
     return !!d && (ink?.[d.role]?.length ?? 0) >= 2;
@@ -624,7 +639,7 @@ function showSelection() {
   els.undo.disabled = undoStack.length === 0;
   els.redo.disabled = redoStack.length === 0;
   els.rename.hidden = !isLabel;
-  if (isLabel) els.labelText.value = edited?.labels.labels.find((l) => `label:${l.id}` === one)?.text ?? "";
+  if (isLabel) els.labelText.value = oneLabel?.text ?? oneAdded?.name ?? "";
   const n = editCount(edits);
   els.editHint.textContent =
     picked.length > 1
@@ -1148,7 +1163,7 @@ function placeAt(clientX: number, clientY: number) {
   const base = ADD_KINDS.find(([r]) => r === placing!.role)?.[2] ?? 30;
   const w = base * (W / 1600) * (Number(els.palSize.value) / 100) * (vary ? 0.85 + Math.random() * 0.3 : 1);
   const h = (w * icon.h) / icon.w;
-  const { edits: next, key } = addSymbol(edits, { role: placing.role, x: mx, y: my + h / 2, w, h, variant: (index + 0.5) / list.length, flip: vary ? Math.random() < 0.5 : false });
+  const { edits: next, key } = addSymbol(edits, { role: placing.role, x: mx, y: my + h / 2, w, h, variant: (index + 0.5) / list.length, flip: vary ? Math.random() < 0.5 : false, name: settlementName(placing.role, mx, my) });
   commit(next);
   select(key);
 }
@@ -1295,4 +1310,23 @@ for (const handle of els.selBox.querySelectorAll<HTMLElement>("[data-corner]")) 
   };
   handle.addEventListener("pointerup", end);
   handle.addEventListener("pointercancel", end);
+}
+
+// A name for a village, town or city placed from the palette, in the naming style of that
+// part of the map (as generated places are named: Norse in the cold north, and so on).
+function settlementName(role: string, x: number, y: number): string | undefined {
+  if (!current || !["village", "town", "capital"].includes(role)) return undefined;
+  const { width: W, height: H } = current.settings;
+  const { cols, rows } = current.water;
+  const c = Math.min(cols - 1, Math.max(0, Math.floor((x / W) * cols)));
+  const r = Math.min(rows - 1, Math.max(0, Math.floor((y / H) * rows)));
+  const culture = cultureAt(y / H, x / W, current.climate.temperature[r * cols + c], 0.5);
+  const count = Object.keys(edits.added).length;
+  const taken = new Set([...current.labels.labels.map((l) => l.text), ...(edited?.symbols.flatMap((s) => (s.name ? [s.name] : [])) ?? [])]);
+  const namer = new Namer(rng(stageSeed(current.settings.seed, `added:${count}`)));
+  for (let i = 0; i < 20; i++) {
+    const name = namer.place(culture);
+    if (!taken.has(name)) return name;
+  }
+  return undefined;
 }

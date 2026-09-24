@@ -22,7 +22,7 @@ export interface Box {
   h: number;
 }
 
-export type LabelKind = "capital" | "town" | "village" | "sea" | "region" | "lake" | "river";
+export type LabelKind = "capital" | "town" | "village" | "sea" | "region" | "lake" | "river" | "title" | "compass";
 
 export interface Label {
   id: number;
@@ -64,6 +64,18 @@ const UPPER = 0.66;
 
 export function textWidth(text: string, size: number, caps: boolean, spacing: number): number {
   return text.length * size * (caps ? UPPER : LOWER) + Math.max(0, text.length - 1) * spacing * size;
+}
+
+// The framed box around a map title: the lettering (x is its middle, y its baseline) with
+// room around it.
+export function titleFrame(l: Pick<Label, "x" | "y" | "size" | "text" | "caps" | "spacing">): Box {
+  const w = textWidth(l.text, l.size, l.caps, l.spacing) + l.size * 1.8;
+  return { x: l.x - w / 2, y: l.y - l.size * 1.3, w, h: l.size * 1.85 };
+}
+
+// The area of a compass rose: x and y are its middle, size its radius; the N sits above.
+export function compassBox(l: Pick<Label, "x" | "y" | "size">): Box {
+  return { x: l.x - l.size, y: l.y - l.size * 1.4, w: l.size * 2, h: l.size * 2.4 };
 }
 
 export function boxesOverlap(a: Box, b: Box, pad = 0): boolean {
@@ -276,10 +288,65 @@ export function placeLabels(hy: Hydrology, cl: Climate, towns: Settlements, symb
     }
   }
 
-  // 7. Clear symbols from under the lettering and emblems.
+  // 7. From generator version 3: a title in a framed box and a compass rose, each in the
+  // emptiest spot along the map's edges (open sea if there is any), clear of towns and names.
+  if (s.v >= 3) {
+    const capital = labels.find((l) => l.kind === "capital");
+    if (capital) {
+      const size = 30 * px;
+      const title = { text: namer.title(capital.culture, capital.text), size, caps: true, spacing: 0.08 };
+      const at = bestEdgeSpot((x, y) => titleFrame({ ...title, x, y }), (b) => b.w);
+      if (at) add({ kind: "title", ...title, x: at.x, y: at.y, anchor: "middle", italic: false, box: titleFrame({ ...title, ...at }), culture: capital.culture });
+    }
+    const r = 66 * px;
+    const at = bestEdgeSpot((x, y) => compassBox({ x, y, size: r }), (b) => b.w);
+    if (at) add({ kind: "compass", text: "N", x: at.x, y: at.y, anchor: "middle", size: r, italic: false, caps: true, spacing: 0, box: compassBox({ x: at.x, y: at.y, size: r }), culture: "english" });
+  }
+
+  // 8. Clear symbols from under the lettering and emblems.
   const clear = [...labels.map((l) => l.box), ...emblems.map(emblemBox)];
   const kept = symbols.filter((sym) => !clear.some((b) => boxesOverlap(symBox(sym), b, 1)));
+
   return { labels, emblems, symbols: kept, removed: symbols.length - kept.length };
+
+  // The best place along the edges for a decoration whose box, for a given middle point, is
+  // made by `boxAt`: free of other lettering and towns, over as much sea and as few symbols
+  // as possible.
+  function bestEdgeSpot(boxAt: (x: number, y: number) => Box, widthOf: (b: Box) => number): { x: number; y: number } | null {
+    const probe = boxAt(0, 0);
+    const w = widthOf(probe);
+    const margin = 36 * px;
+    const xs = [margin + w / 2, W / 2, W - margin - w / 2, W * 0.25, W * 0.75];
+    const ys: number[] = [];
+    for (let f = 0; f <= 1.0001; f += 0.125) ys.push(margin - probe.y + f * (H - 2 * margin - probe.h));
+    let best: { x: number; y: number } | null = null;
+    let bestScore = Infinity;
+    for (const y of ys) {
+      // Down the sides only near the corners and middle; along the top and bottom anywhere.
+      for (const x of xs) {
+        const b = boxAt(x, y);
+        if (!free(b)) continue;
+        const score = clutter(b) + landShare(b) * 40;
+        if (score < bestScore) (bestScore = score), (best = { x, y });
+      }
+    }
+    return best;
+  }
+
+  // Share of a box that is land (0 to 1), sampled on a coarse grid.
+  function landShare(b: Box): number {
+    let land = 0;
+    let n = 0;
+    for (let y = b.y; y <= b.y + b.h; y += b.h / 4) {
+      for (let x = b.x; x <= b.x + b.w; x += b.w / 6) {
+        const c = Math.min(cols - 1, Math.max(0, Math.floor(x / cellW)));
+        const r = Math.min(rows - 1, Math.max(0, Math.floor(y / cellH)));
+        n++;
+        if (hy.water[r * cols + c] === 0) land++;
+      }
+    }
+    return land / n;
+  }
 
   // Area labels (sea, regions, lakes): centred on a point, nudged about if the spot is taken.
   function placeArea(kind: LabelKind, text: string, x: number, y: number, size: number, caps: boolean, spacing: number, italic: boolean, culture: Culture) {

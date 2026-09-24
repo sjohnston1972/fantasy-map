@@ -124,6 +124,17 @@ export class Namer {
     });
   }
 
+  // The map's title, named for its capital in the style of the capital's region.
+  title(c: Culture, capital: string): string {
+    const forms: Record<Culture, string[]> = {
+      norse: ["The Jarldom of %", "The Northern Reaches of %", "The Kingdom of %"],
+      celtic: ["The Kingdom of %", "The Lands of %", "The High Kingdom of %"],
+      english: ["The Realm of %", "The Kingdom of %", "The Shire of %"],
+      southern: ["The Principality of %", "The Free Cities of %", "The Duchy of %"],
+    };
+    return this.pick(forms[c]).replace("%", capital);
+  }
+
   sea(c: Culture): string {
     return this.unique(() => this.pick([`The ${this.pick(["Grey", "Silver", "Western", "Northern", "Quiet", "Stormy", "Amber"])} Sea`, `${this.pick(CULTURES[c].starts)} Sound`, `The Sea of ${this.place(c)}`]));
   }

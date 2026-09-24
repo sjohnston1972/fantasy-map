@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { pngSize, toBase64 } from "../src/app/export";
 import { addSymbol, applyEdits, changedKeys, editCount, isSymbolKey, layer, MAX_SCALE, MIN_SCALE, move, NO_EDITS, remove, rename, resize, swap, type EditedMap } from "../src/gen/edits";
-import { boxesOverlap, symBox } from "../src/gen/labels";
+import { boxesOverlap, symBox, titleFrame } from "../src/gen/labels";
 import { toInkSet } from "../src/gen/inkset";
 import { generate } from "../src/gen/pipeline";
 import { DEFAULT_SETTINGS } from "../src/gen/settings";
@@ -275,6 +275,31 @@ describe("which items an edit changed", () => {
     expect([...changedKeys(a, b)].sort()).toEqual([...keys].sort());
     expect([...changedKeys(b, a)].sort()).toEqual([...keys].sort()); // undo redraws the same items
     expect(changedKeys(b, b).size).toBe(0);
+  });
+});
+
+describe("named settlements and the title", () => {
+  it("draws an added town's name beside it, which can be reworded or cleared", () => {
+    const { edits: a, key } = addSymbol(NO_EDITS, { role: "town", x: 600, y: 700, w: 56, h: 56, variant: 0.5, flip: false, name: "Oakhaven" });
+    // The whole item group, name included (it follows the drawing inside the group).
+    const group = (svg: string) => svg.slice(svg.indexOf(`data-key="${key}"`), svg.indexOf("</g></g>", svg.indexOf(`data-key="${key}"`)));
+    expect(group(svgOf(applyEdits(map, a)))).toContain(">Oakhaven</text>");
+    expect(group(svgOf(applyEdits(map, rename(a, key, "Dragonford"))))).toContain(">Dragonford</text>");
+    const cleared = applyEdits(map, rename(a, key, ""));
+    expect(svgOf(cleared)).not.toContain("Oakhaven");
+    expect(cleared.symbols.some((s) => s.key === key)).toBe(true); // the town stays
+  });
+
+  it("keeps a title's frame around its wording when renamed, moved or resized", () => {
+    const m3 = generate({ ...DEFAULT_SETTINGS, seed: 482913 });
+    const t = m3.labels.labels.find((l) => l.kind === "title")!;
+    const key = `label:${t.id}`;
+    const e = resize(move(rename(NO_EDITS, key, "The Isles of Wonder"), key, 20, -10), key, 1.5);
+    const t2 = applyEdits(m3, e).labels.labels.find((l) => l.id === t.id)!;
+    expect(t2.text).toBe("The Isles of Wonder");
+    expect(t2.size).toBeCloseTo(t.size * 1.5);
+    expect(t2.x).toBeCloseTo(t.x + 20);
+    expect(t2.box).toEqual(titleFrame(t2));
   });
 });
 
