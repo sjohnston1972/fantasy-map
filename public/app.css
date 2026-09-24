@@ -39,12 +39,14 @@ input[type="range"] { width: 100%; accent-color: var(--ink); }
 .stage { margin: 0; display: flex; flex-direction: column; align-items: center; gap: 8px; }
 /* The map box takes its shape from the map (set from script) and fits the window height. */
 .map-frame { display: flex; justify-content: center; width: 100%; height: calc(100vh - 150px); }
-.map-box { position: relative; overflow: hidden; height: 100%; max-width: 100%; background: #fff; box-shadow: 0 1px 6px rgba(0,0,0,0.15); }
+.map-box { position: relative; overflow: hidden; overflow: clip; height: 100%; max-width: 100%; background: #fff; box-shadow: 0 1px 6px rgba(0,0,0,0.15); }
 .map, .map svg { display: block; width: 100%; height: 100%; }
-/* The map is drawn a quarter of a view past each edge of the box (MARGIN in zoom.ts), on
+/* The map box and map clip what sticks out rather than hiding it: a hidden overflow can
+   still be scrolled, and Safari scrolled it when an item was pressed, shifting the map.
+   The map is drawn a quarter of a view past each edge of the box (MARGIN in zoom.ts), on
    its own graphics layer, so a drag or pinch only moves the picture already drawn. The
    transform origin is the box's top-left corner (25% of 150%). */
-.map { position: relative; }
+.map { position: relative; overflow: hidden; overflow: clip; }
 .map svg { position: absolute; left: -25%; top: -25%; width: 150%; height: 150%; overflow: hidden; will-change: transform; transform-origin: 16.6667% 16.6667%; }
 .relief { position: absolute; inset: 0; width: 100%; height: 100%; mix-blend-mode: multiply; opacity: 0.55; pointer-events: none; }
 @media (max-width: 760px) { .map-frame { height: auto; } .map-box { height: auto; width: 100%; } }
@@ -71,6 +73,9 @@ input[type="range"] { width: 100%; accent-color: var(--ink); }
 .rename input { padding: 5px 8px; font: inherit; border: 1px solid var(--rule); border-radius: 5px; min-width: 12em; }
 .hint { margin: 0; font-size: 0.82rem; color: var(--faint); flex-basis: 100%; }
 .map.editing { touch-action: none; cursor: crosshair; }
+/* No text selection on the map: dragging across a name would start selecting it (and
+   Safari would scroll the page to follow). */
+.map { -webkit-user-select: none; user-select: none; }
 .map.editing [data-key] { cursor: grab; }
 .map [data-key].selected { filter: drop-shadow(0 0 2px var(--focus)) drop-shadow(0 0 2px var(--focus)); }
 .fine { color: var(--faint); font-size: 0.76rem; }
@@ -112,9 +117,35 @@ input[type="range"] { width: 100%; accent-color: var(--ink); }
 /* Box around the picked items, with a resize handle on each corner. */
 .sel-box { position: absolute; border: 1.5px dashed var(--focus); pointer-events: none; box-sizing: border-box; }
 .sel-box[hidden] { display: none; }
-.sel-box [data-corner] { position: absolute; width: 12px; height: 12px; background: #fff; border: 2px solid var(--focus); border-radius: 2px; pointer-events: auto; touch-action: none; }
-.sel-box [data-corner="nw"] { left: -7px; top: -7px; cursor: nwse-resize; }
-.sel-box [data-corner="se"] { right: -7px; bottom: -7px; cursor: nwse-resize; }
-.sel-box [data-corner="ne"] { right: -7px; top: -7px; cursor: nesw-resize; }
-.sel-box [data-corner="sw"] { left: -7px; bottom: -7px; cursor: nesw-resize; }
-@media (pointer: coarse) { .sel-box [data-corner] { width: 22px; height: 22px; } .sel-box [data-corner="nw"], .sel-box [data-corner="sw"] { left: -12px; } .sel-box [data-corner="ne"], .sel-box [data-corner="se"] { right: -12px; } .sel-box [data-corner="nw"], .sel-box [data-corner="ne"] { top: -12px; } .sel-box [data-corner="sw"], .sel-box [data-corner="se"] { bottom: -12px; } }
+/* The handles sit just outside the box's corners, so they never cover the picked items
+   themselves (a small tree is smaller than a handle). */
+.sel-box { --handle: 11px; }
+.sel-box [data-corner] { position: absolute; width: var(--handle); height: var(--handle); background: #fff; border: 2px solid var(--focus); border-radius: 2px; pointer-events: auto; touch-action: none; box-sizing: border-box; }
+.sel-box [data-corner="nw"] { left: calc(-1 * var(--handle)); top: calc(-1 * var(--handle)); cursor: nwse-resize; }
+.sel-box [data-corner="se"] { right: calc(-1 * var(--handle)); bottom: calc(-1 * var(--handle)); cursor: nwse-resize; }
+.sel-box [data-corner="ne"] { right: calc(-1 * var(--handle)); top: calc(-1 * var(--handle)); cursor: nesw-resize; }
+.sel-box [data-corner="sw"] { left: calc(-1 * var(--handle)); bottom: calc(-1 * var(--handle)); cursor: nesw-resize; }
+@media (pointer: coarse) { .sel-box { --handle: 22px; } }
+
+/* Tidier editing layout: fixed toolbar, floating bar for picked items, status over the map,
+   palette beside the map. */
+.edit-tools { flex-wrap: wrap; row-gap: 6px; }
+.tool-group { display: flex; gap: 6px; padding-right: 8px; border-right: 1px solid var(--rule); }
+.tool-group:last-of-type { border-right: 0; }
+details.keys { flex-basis: 100%; font-size: 0.8rem; color: var(--faint); }
+details.keys summary { cursor: pointer; width: max-content; }
+details.keys p { margin: 4px 0 0; }
+.work { width: 100%; display: flex; gap: 14px; align-items: flex-start; justify-content: center; }
+.work > .map-frame { flex: 1 1 auto; min-width: 0; }
+.palette { flex: 0 0 290px; max-height: calc(100vh - 150px); overflow-y: auto; }
+.palette .pal-grid { max-height: none; }
+@media (max-width: 1100px) { .work { flex-direction: column; align-items: stretch; } .palette { flex-basis: auto; max-height: 45vh; } }
+.sel-bar { position: absolute; z-index: 3; display: flex; flex-wrap: wrap; gap: 4px; padding: 4px; max-width: calc(100% - 16px); background: rgba(255, 253, 248, 0.97); border: 1px solid var(--rule); border-radius: 7px; box-shadow: 0 2px 8px rgba(0,0,0,0.15); }
+.sel-bar[hidden] { display: none; }
+.sel-bar .plain { padding: 3px 8px; font-size: 0.78rem; }
+.plain.danger { border-color: #9b2c1c; color: #9b2c1c; }
+.map-status { position: absolute; left: 8px; right: 150px; top: 10px; display: flex; flex-direction: column; align-items: flex-start; gap: 6px; pointer-events: none; }
+.status-hint { margin: 0; max-width: 100%; padding: 4px 8px; font-size: 0.78rem; color: var(--ink); background: rgba(255, 253, 248, 0.92); border: 1px solid var(--rule); border-radius: 6px; }
+.status-hint:empty { display: none; }
+.map-status .rename { pointer-events: auto; padding: 6px; background: rgba(255, 253, 248, 0.97); border: 1px solid var(--rule); border-radius: 6px; }
+.toolbar { align-items: flex-start; }

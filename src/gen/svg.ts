@@ -6,8 +6,8 @@
 import { outlines, simplify, smoothLoop, type Pt } from "./contours";
 import { WATER_LAKE, WATER_SEA, type Hydrology } from "./hydrology";
 import { pickSymbol, type InkSet, type InkSymbol } from "./inkset";
-import type { Labelling } from "./labels";
-import type { Settlements } from "./settlements";
+import type { Emblem, Label, Labelling } from "./labels";
+import type { Bridge, Landmark, Settlement, Settlements } from "./settlements";
 import type { PlacedSymbol } from "./symbols";
 
 export interface SvgInput {
@@ -76,91 +76,46 @@ export function renderSvg(m: SvgInput): string {
   }
   parts.push(base);
 
+  // The items drawn over the ground, each layer in its own group so the editor can redraw one
+  // item and put it back in its place (renderItems, below).
+  const draw = itemDrawer(m, defs);
   if (m.towns) {
-    m.towns.bridges.forEach((b, k) => {
-      const key = `bridge:${b.index ?? k}`;
-      const bridge = pickSymbol(m.ink, "bridge", b.variant ?? hashVariant(b.cell, 2654435761));
-      if (bridge) {
-        // Drawn upright over the crossing, centred on the river.
-        const bw = 24 * px * (b.size ?? 1);
-        parts.push(`<g data-key="${key}" data-role="bridge">${defs.use(bridge, b.x, b.y + (bw * bridge.h) / bridge.w / 2, bw, bw, false, W)}</g>`);
-        return;
-      }
-      const deg = (b.angle * 180) / Math.PI;
-      const L = 9 * px;
-      const Wd = 5 * px;
-      parts.push(
-        `<g data-key="${key}" transform="translate(${b.x.toFixed(1)} ${b.y.toFixed(1)}) rotate(${deg.toFixed(1)})" data-role="bridge">` +
-          `<rect x="${(-L / 2).toFixed(1)}" y="${(-Wd / 2).toFixed(1)}" width="${L.toFixed(1)}" height="${Wd.toFixed(1)}" fill="#fff" stroke="none"/>` +
-          `<path d="M${(-L / 2).toFixed(1)} ${(-Wd / 2).toFixed(1)}H${(L / 2).toFixed(1)}M${(-L / 2).toFixed(1)} ${(Wd / 2).toFixed(1)}H${(L / 2).toFixed(1)}" stroke="${INK}" stroke-width="${(1.2 * px).toFixed(2)}"/></g>`,
-      );
-    });
+    parts.push(`<g data-layer="bridges">`);
+    m.towns.bridges.forEach((b, k) => parts.push(draw.bridge(b, k)));
+    parts.push(`</g>`);
   }
 
   // Symbols, back to front.
-  parts.push(`<g stroke="${INK}" stroke-linejoin="round" stroke-linecap="round">`);
-  m.symbols.forEach((s, k) => {
-    const key = s.key ?? `sym:${k}`;
-    const icon = pickSymbol(m.ink, s.role, s.variant);
-    parts.push(icon ? `<g data-key="${key}" data-sym="${key.slice(4)}" data-role="${s.role}">${defs.use(icon, s.x, s.y, s.w, s.h, s.flip, W)}</g>` : placeholder(s, k, key));
-  });
+  parts.push(`<g data-layer="symbols" stroke="${INK}" stroke-linejoin="round" stroke-linecap="round">`);
+  m.symbols.forEach((s, k) => parts.push(draw.symbol(s, k)));
   parts.push(`</g>`);
 
   // Landmarks and settlements (dots with a ringed capital until the town symbols load).
   if (m.towns) {
-    for (const l of m.towns.landmarks) {
-      const icon = pickSymbol(m.ink, "landmark", l.variant ?? hashVariant(l.cell, 2246822519));
-      const lw = 30 * px * (l.size ?? 1);
-      const key = `landmark:${l.id}`;
-      parts.push(icon ? `<g data-key="${key}" data-landmark="${l.id}">${defs.use(icon, l.x, l.y, lw, lw, false, W)}</g>` : `<g data-key="${key}" data-landmark="${l.id}"><path d="M${(l.x - 4 * px).toFixed(1)} ${l.y.toFixed(1)}V${(l.y - 14 * px).toFixed(1)}H${(l.x + 4 * px).toFixed(1)}V${l.y.toFixed(1)}Z" fill="#fff" stroke="${INK}" stroke-width="${(1.2 * px).toFixed(2)}"/></g>`);
-    }
-    for (const p of m.towns.places) {
-      const key = `town:${p.id}`;
-      const townIcon = pickSymbol(m.ink, p.tier, p.variant ?? hashVariant(p.cell, 2654435761));
-      if (townIcon) {
-        const tw = (p.tier === "capital" ? 74 : p.tier === "town" ? 56 : 40) * px * (p.size ?? 1);
-        parts.push(`<g data-key="${key}" data-town="${p.id}" data-tier="${p.tier}">${defs.use(townIcon, p.x, p.y + tw * 0.12, tw, tw, false, W)}</g>`);
-        continue;
-      }
-      const r = (p.tier === "capital" ? 10 : p.tier === "town" ? 7.5 : 5) * px * (p.size ?? 1);
-      const ring = p.tier === "capital" ? `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="${(r + 4 * px).toFixed(1)}" fill="none" stroke="${INK}" stroke-width="${(1.1 * px).toFixed(2)}"/>` : "";
-      parts.push(`<g data-key="${key}" data-town="${p.id}" data-tier="${p.tier}"><circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="${r.toFixed(1)}" fill="${p.tier === "village" ? "#fff" : INK}" stroke="${INK}" stroke-width="${(1.3 * px).toFixed(2)}"/>${ring}</g>`);
-    }
+    parts.push(`<g data-layer="places">`);
+    for (const l of m.towns.landmarks) parts.push(draw.landmark(l));
+    for (const p of m.towns.places) parts.push(draw.town(p));
+    parts.push(`</g>`);
   }
 
   // Emblems: heraldic banners beside the capital and the chief towns.
   if (m.labels) {
-    m.labels.emblems.forEach((e, k) => {
-      const key = `emblem:${e.index ?? k}`;
-      const icon = pickSymbol(m.ink, "emblem", e.variant);
-      if (icon) {
-        parts.push(`<g data-key="${key}" data-emblem="${e.town}">${defs.use(icon, e.x, e.y, e.w, e.w * 1.25, false, W)}</g>`);
-        return;
-      }
-      const x0 = e.x - e.w / 2;
-      const top = e.y - e.w * 1.2;
-      parts.push(`<g data-key="${key}" data-emblem="${e.town}"><path d="M${x0.toFixed(1)} ${top.toFixed(1)}H${(x0 + e.w).toFixed(1)}V${(top + e.w * 0.7).toFixed(1)}Q${(x0 + e.w).toFixed(1)} ${(top + e.w * 1.1).toFixed(1)} ${e.x.toFixed(1)} ${(top + e.w * 1.2).toFixed(1)}Q${x0.toFixed(1)} ${(top + e.w * 1.1).toFixed(1)} ${x0.toFixed(1)} ${(top + e.w * 0.7).toFixed(1)}Z" fill="#fff" stroke="${INK}" stroke-width="${(1.4 * px).toFixed(2)}"/></g>`);
-    });
+    parts.push(`<g data-layer="emblems">`);
+    m.labels.emblems.forEach((e, k) => parts.push(draw.emblem(e, k)));
+    parts.push(`</g>`);
   }
 
   // Lettering, on top of everything, each with a white outline so it reads over the ink.
   if (m.labels) {
     const riverPaths: string[] = [];
-    parts.push(`<g font-family="'IM Fell English', Georgia, 'Times New Roman', serif" fill="${INK}" stroke="#fff" stroke-linejoin="round" paint-order="stroke">`);
+    parts.push(`<g data-layer="labels" ${LABEL_STYLE}>`);
     for (const l of m.labels.labels) {
-      const key = `label:${l.id}`;
-      const text = escapeXml(l.caps ? l.text.toUpperCase() : l.text);
-      const style = `font-size="${l.size.toFixed(1)}"${l.italic ? ' font-style="italic"' : ""}${l.spacing ? ` letter-spacing="${(l.spacing * l.size).toFixed(1)}"` : ""} stroke-width="${(l.size * 0.22).toFixed(1)}"`;
-      if (l.path) {
-        const id = `rl${l.id}`;
-        riverPaths.push(`<path id="${id}" d="M${l.path.map(([x, y]) => `${x.toFixed(1)} ${y.toFixed(1)}`).join("L")}"/>`);
-        parts.push(`<text data-key="${key}" data-label="${l.id}" data-kind="${l.kind}" ${style}><textPath href="#${id}">${text}</textPath></text>`);
-      } else {
-        parts.push(`<text data-key="${key}" data-label="${l.id}" data-kind="${l.kind}" x="${l.x.toFixed(1)}" y="${l.y.toFixed(1)}" text-anchor="${l.anchor}" ${style}>${text}</text>`);
-      }
+      const { markup, path } = draw.label(l);
+      parts.push(markup);
+      if (path) riverPaths.push(path);
     }
     parts.push(`</g>`);
-    if (riverPaths.length) parts.push(`<defs>${riverPaths.join("")}</defs>`);
+    parts.push(`<defs data-layer="river-paths">${riverPaths.join("")}</defs>`);
   }
 
   parts.push(`</g></g>`);
@@ -172,6 +127,123 @@ export function renderSvg(m: SvgInput): string {
   // Drawings used on this map, defined once and reused by reference.
   parts.splice(1, 0, defs.markup());
   return parts.join("");
+}
+
+const LABEL_STYLE = `font-family="'IM Fell English', Georgia, 'Times New Roman', serif" fill="${INK}" stroke="#fff" stroke-linejoin="round" paint-order="stroke"`;
+
+// Markup for each kind of item on the map. renderSvg draws them all; renderItems redraws a
+// few after an edit. Both go through here, so a redrawn item is exactly what a full drawing
+// would have produced.
+function itemDrawer(m: SvgInput, defs: InkDefs) {
+  const W = m.width;
+  const px = W / 1600;
+  return {
+    bridge(b: Bridge, k: number): string {
+      const key = `bridge:${b.index ?? k}`;
+      const bridge = pickSymbol(m.ink, "bridge", b.variant ?? hashVariant(b.cell, 2654435761));
+      if (bridge) {
+        // Drawn upright over the crossing, centred on the river.
+        const bw = 24 * px * (b.size ?? 1);
+        return `<g data-key="${key}" data-role="bridge">${defs.use(bridge, b.x, b.y + (bw * bridge.h) / bridge.w / 2, bw, bw, false, W)}</g>`;
+      }
+      const deg = (b.angle * 180) / Math.PI;
+      const L = 9 * px;
+      const Wd = 5 * px;
+      return (
+        `<g data-key="${key}" transform="translate(${b.x.toFixed(1)} ${b.y.toFixed(1)}) rotate(${deg.toFixed(1)})" data-role="bridge">` +
+        `<rect x="${(-L / 2).toFixed(1)}" y="${(-Wd / 2).toFixed(1)}" width="${L.toFixed(1)}" height="${Wd.toFixed(1)}" fill="#fff" stroke="none"/>` +
+        `<path d="M${(-L / 2).toFixed(1)} ${(-Wd / 2).toFixed(1)}H${(L / 2).toFixed(1)}M${(-L / 2).toFixed(1)} ${(Wd / 2).toFixed(1)}H${(L / 2).toFixed(1)}" stroke="${INK}" stroke-width="${(1.2 * px).toFixed(2)}"/></g>`
+      );
+    },
+    symbol(s: PlacedSymbol, k: number): string {
+      const key = s.key ?? `sym:${k}`;
+      const icon = pickSymbol(m.ink, s.role, s.variant);
+      return icon ? `<g data-key="${key}" data-sym="${key.slice(4)}" data-role="${s.role}">${defs.use(icon, s.x, s.y, s.w, s.h, s.flip, W)}</g>` : placeholder(s, k, key);
+    },
+    landmark(l: Landmark): string {
+      const icon = pickSymbol(m.ink, "landmark", l.variant ?? hashVariant(l.cell, 2246822519));
+      const lw = 30 * px * (l.size ?? 1);
+      const key = `landmark:${l.id}`;
+      return icon ? `<g data-key="${key}" data-landmark="${l.id}">${defs.use(icon, l.x, l.y, lw, lw, false, W)}</g>` : `<g data-key="${key}" data-landmark="${l.id}"><path d="M${(l.x - 4 * px).toFixed(1)} ${l.y.toFixed(1)}V${(l.y - 14 * px).toFixed(1)}H${(l.x + 4 * px).toFixed(1)}V${l.y.toFixed(1)}Z" fill="#fff" stroke="${INK}" stroke-width="${(1.2 * px).toFixed(2)}"/></g>`;
+    },
+    town(p: Settlement): string {
+      const key = `town:${p.id}`;
+      const townIcon = pickSymbol(m.ink, p.tier, p.variant ?? hashVariant(p.cell, 2654435761));
+      if (townIcon) {
+        const tw = (p.tier === "capital" ? 74 : p.tier === "town" ? 56 : 40) * px * (p.size ?? 1);
+        return `<g data-key="${key}" data-town="${p.id}" data-tier="${p.tier}">${defs.use(townIcon, p.x, p.y + tw * 0.12, tw, tw, false, W)}</g>`;
+      }
+      const r = (p.tier === "capital" ? 10 : p.tier === "town" ? 7.5 : 5) * px * (p.size ?? 1);
+      const ring = p.tier === "capital" ? `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="${(r + 4 * px).toFixed(1)}" fill="none" stroke="${INK}" stroke-width="${(1.1 * px).toFixed(2)}"/>` : "";
+      return `<g data-key="${key}" data-town="${p.id}" data-tier="${p.tier}"><circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="${r.toFixed(1)}" fill="${p.tier === "village" ? "#fff" : INK}" stroke="${INK}" stroke-width="${(1.3 * px).toFixed(2)}"/>${ring}</g>`;
+    },
+    emblem(e: Emblem, k: number): string {
+      const key = `emblem:${e.index ?? k}`;
+      const icon = pickSymbol(m.ink, "emblem", e.variant);
+      if (icon) return `<g data-key="${key}" data-emblem="${e.town}">${defs.use(icon, e.x, e.y, e.w, e.w * 1.25, false, W)}</g>`;
+      const x0 = e.x - e.w / 2;
+      const top = e.y - e.w * 1.2;
+      return `<g data-key="${key}" data-emblem="${e.town}"><path d="M${x0.toFixed(1)} ${top.toFixed(1)}H${(x0 + e.w).toFixed(1)}V${(top + e.w * 0.7).toFixed(1)}Q${(x0 + e.w).toFixed(1)} ${(top + e.w * 1.1).toFixed(1)} ${e.x.toFixed(1)} ${(top + e.w * 1.2).toFixed(1)}Q${x0.toFixed(1)} ${(top + e.w * 1.1).toFixed(1)} ${x0.toFixed(1)} ${(top + e.w * 0.7).toFixed(1)}Z" fill="#fff" stroke="${INK}" stroke-width="${(1.4 * px).toFixed(2)}"/></g>`;
+    },
+    // A name, and for a river name the path its letters follow (kept in the river-paths defs).
+    label(l: Label): { markup: string; path?: string } {
+      const key = `label:${l.id}`;
+      const text = escapeXml(l.caps ? l.text.toUpperCase() : l.text);
+      const style = `font-size="${l.size.toFixed(1)}"${l.italic ? ' font-style="italic"' : ""}${l.spacing ? ` letter-spacing="${(l.spacing * l.size).toFixed(1)}"` : ""} stroke-width="${(l.size * 0.22).toFixed(1)}"`;
+      if (l.path) {
+        const id = `rl${l.id}`;
+        return {
+          markup: `<text data-key="${key}" data-label="${l.id}" data-kind="${l.kind}" ${style}><textPath href="#${id}">${text}</textPath></text>`,
+          path: `<path id="${id}" d="M${l.path.map(([x, y]) => `${x.toFixed(1)} ${y.toFixed(1)}`).join("L")}"/>`,
+        };
+      }
+      return { markup: `<text data-key="${key}" data-label="${l.id}" data-kind="${l.kind}" x="${l.x.toFixed(1)}" y="${l.y.toFixed(1)}" text-anchor="${l.anchor}" ${style}>${text}</text>` };
+    },
+  };
+}
+
+// The layer each kind of item is drawn in (see renderSvg).
+export function layerOf(key: string): "bridges" | "symbols" | "places" | "emblems" | "labels" | null {
+  const kind = key.split(":")[0];
+  return kind === "bridge" ? "bridges" : kind === "sym" || kind === "add" ? "symbols" : kind === "landmark" || kind === "town" ? "places" : kind === "emblem" ? "emblems" : kind === "label" ? "labels" : null;
+}
+
+// Every item's key in its layer, in drawing order (back to front).
+export function layerOrder(m: Pick<SvgInput, "symbols" | "towns" | "labels">): Record<"bridges" | "symbols" | "places" | "emblems" | "labels", string[]> {
+  return {
+    bridges: m.towns?.bridges.map((b, k) => `bridge:${b.index ?? k}`) ?? [],
+    symbols: m.symbols.map((s, k) => s.key ?? `sym:${k}`),
+    places: [...(m.towns?.landmarks.map((l) => `landmark:${l.id}`) ?? []), ...(m.towns?.places.map((p) => `town:${p.id}`) ?? [])],
+    emblems: m.labels?.emblems.map((e, k) => `emblem:${e.index ?? k}`) ?? [],
+    labels: m.labels?.labels.map((l) => `label:${l.id}`) ?? [],
+  };
+}
+
+// Redraw just some items (after an edit): their markup (missing for items that are gone),
+// the drawings they use (to add to the SVG's <defs> if not there yet), and the paths for
+// river names.
+export function renderItems(m: SvgInput, keys: Iterable<string>): { items: Map<string, string>; defs: [string, string][]; paths: [string, string][] } {
+  const want = new Set(keys);
+  const defs = new InkDefs();
+  const draw = itemDrawer(m, defs);
+  const items = new Map<string, string>();
+  const paths: [string, string][] = [];
+  m.towns?.bridges.forEach((b, k) => want.has(`bridge:${b.index ?? k}`) && items.set(`bridge:${b.index ?? k}`, draw.bridge(b, k)));
+  m.symbols.forEach((s, k) => {
+    const key = s.key ?? `sym:${k}`;
+    if (want.has(key)) items.set(key, draw.symbol(s, k));
+  });
+  for (const l of m.towns?.landmarks ?? []) if (want.has(`landmark:${l.id}`)) items.set(`landmark:${l.id}`, draw.landmark(l));
+  for (const p of m.towns?.places ?? []) if (want.has(`town:${p.id}`)) items.set(`town:${p.id}`, draw.town(p));
+  m.labels?.emblems.forEach((e, k) => want.has(`emblem:${e.index ?? k}`) && items.set(`emblem:${e.index ?? k}`, draw.emblem(e, k)));
+  for (const l of m.labels?.labels ?? []) {
+    const key = `label:${l.id}`;
+    if (!want.has(key)) continue;
+    const { markup, path } = draw.label(l);
+    items.set(key, markup);
+    if (path) paths.push([`rl${l.id}`, path]);
+  }
+  return { items, defs: defs.entries(), paths };
 }
 
 // Sea ripples, land, lakes, rivers and roads.
@@ -237,14 +309,14 @@ function escapeXml(s: string): string {
 // of those behind, as an engraver would leave them out), then the ink.
 class InkDefs {
   private ids = new Map<string, string>();
-  private symbols: string[] = [];
+  private symbols: [string, string][] = [];
   private ref(icon: InkSymbol): string {
     let id = this.ids.get(icon.id);
     if (!id) {
       // Named after the drawing, so an item keeps its reference when others are edited.
       id = `i-${icon.id.replace(/[^\w-]/g, "_")}`;
       this.ids.set(icon.id, id);
-      this.symbols.push(`<symbol id="${id}" viewBox="${icon.viewBox}">${icon.body}</symbol>`);
+      this.symbols.push([id, `<symbol id="${id}" viewBox="${icon.viewBox}">${icon.body}</symbol>`]);
     }
     return id;
   }
@@ -265,7 +337,10 @@ class InkDefs {
     return `<g${mirror}><use ${at} color="#fff" stroke="#fff" stroke-width="${halo.toFixed(1)}" stroke-linejoin="round"/><use ${at} color="${INK}" stroke="none"/></g>`;
   }
   markup(): string {
-    return this.symbols.length ? `<defs>${this.symbols.join("")}</defs>` : "";
+    return this.symbols.length ? `<defs data-layer="drawings">${this.symbols.map(([, m]) => m).join("")}</defs>` : "";
+  }
+  entries(): [string, string][] {
+    return this.symbols;
   }
 }
 

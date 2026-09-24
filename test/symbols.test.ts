@@ -187,7 +187,7 @@ describe("SVG render with ink symbols", () => {
 
   it("defines each drawing once and places it by reference", () => {
     expect((svg.match(/<symbol /g) ?? []).length).toBeLessThanOrEqual(4);
-    expect(svg).toContain("<defs>");
+    expect(svg).toContain("<defs data-layer=\"drawings\">");
     const mountains = m.symbols.filter((s) => s.role === "mountain").length;
     expect((svg.match(/<use /g) ?? []).length).toBeGreaterThanOrEqual(mountains * 2);
   });

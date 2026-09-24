@@ -225,3 +225,25 @@ export function layer(m: GeneratedMap, e: Edits, key: string, how: LayerMove): E
 }
 
 const keyOf = (s: PlacedSymbol) => s.key!;
+
+// The items whose drawing differs between two sets of edits: everything moved, swapped,
+// renamed, layered, resized, added or deleted in one and not the other. The page redraws
+// just these after a change (or an undo) instead of the whole map.
+export function changedKeys(a: Edits, b: Edits): Set<string> {
+  const out = new Set<string>();
+  const records = (e: Edits) => [e.moved, e.variant, e.text, e.z, e.scale, e.added] as Record<string, unknown>[];
+  const ra = records(a);
+  const rb = records(b);
+  ra.forEach((x, i) => {
+    const y = rb[i] ?? {};
+    if (x === y) return;
+    for (const k of new Set([...Object.keys(x ?? {}), ...Object.keys(y)])) if (JSON.stringify(x?.[k]) !== JSON.stringify(y[k])) out.add(k);
+  });
+  if (a.deleted !== b.deleted) {
+    const da = new Set(a.deleted);
+    const db = new Set(b.deleted);
+    for (const k of da) if (!db.has(k)) out.add(k);
+    for (const k of db) if (!da.has(k)) out.add(k);
+  }
+  return out;
+}

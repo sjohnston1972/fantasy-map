@@ -351,3 +351,32 @@ can only be reopened by dropping its file again on the Import page.
   the drawn size, travel in share links (as `r`), and copies keep them.
 - Towns and names keep their positions for labelling purposes: a much bigger town does not
   push its name away, so very large resizes may need the name moved by hand.
+
+## Editor overhaul: browser tests, fast edits, redo, tidier layout, names follow towns
+
+- **Browser tests** (`npm run e2e`, Playwright): the editing gestures driven with real mouse
+  and touch input in Chrome's, Firefox's and Safari's engines (WebKit) and on phone and
+  tablet screens, against a test server with stand-in drawings (e2e/server.mjs). They also
+  check the map check code is identical in every engine. Writing them found five real bugs:
+  - Firefox reports drawings placed with `<use>` at a fraction of their size, so box select,
+    Ctrl+A and the resize box were wrong there. The page now uses its own geometry.
+  - Picking an item changed the hint text above the map; where it wrapped to another line
+    (Safari's type measures differently) the whole map jumped down under the pointer.
+    Changing text and the wording box now sit over the map instead.
+  - The resize handles covered small picked items (a tree is smaller than a handle), so they
+    could not be dragged: the handles now sit outside the box.
+  - A name or town drawn over a picked group took the drag instead of the group: picked
+    items now win.
+  - Entering edit mode scrolled the page (focus); it no longer does.
+- **Every edit redraws only what it touched** (swap, layering, resize, paste, rename, delete,
+  undo, redo), in a few milliseconds instead of rebuilding the whole map. A test checks the
+  patched map is identical, item for item, to the same map drawn fresh from its link.
+- **Redo:** button, Ctrl+Y or Ctrl+Shift+Z.
+- **Layout:** the toolbar holds only what does not depend on the selection (Add symbols,
+  Select area, Paste, Undo, Redo, keyboard shortcuts in a fold-out); actions for picked
+  items float in a bar just above them; hints sit over the map's top-left corner; the
+  palette opens beside the map on wide screens.
+- **Names follow their town:** dragging, nudging or box-resizing a town brings its name and
+  banner along (unless they were picked too). Added towns still have no name.
+- The "map check" code changed once more, because the drawing now groups items by layer; the
+  generated maps themselves are unchanged.

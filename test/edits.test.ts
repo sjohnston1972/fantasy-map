@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { pngSize, toBase64 } from "../src/app/export";
-import { addSymbol, applyEdits, editCount, isSymbolKey, layer, MAX_SCALE, MIN_SCALE, move, NO_EDITS, remove, rename, resize, swap, type EditedMap } from "../src/gen/edits";
+import { addSymbol, applyEdits, changedKeys, editCount, isSymbolKey, layer, MAX_SCALE, MIN_SCALE, move, NO_EDITS, remove, rename, resize, swap, type EditedMap } from "../src/gen/edits";
 import { boxesOverlap, symBox } from "../src/gen/labels";
 import { toInkSet } from "../src/gen/inkset";
 import { generate } from "../src/gen/pipeline";
@@ -261,6 +261,23 @@ describe("resizing", () => {
   });
 });
 
+describe("which items an edit changed", () => {
+  it("lists exactly the items to redraw, both ways", () => {
+    const a = move(NO_EDITS, "sym:1", 5, 5);
+    let b = move(a, "sym:2", 1, 1);
+    b = swap(b, "town:0", 0.1, 4);
+    b = rename(b, "label:3", "New name");
+    b = remove(b, "sym:9");
+    b = resize(b, "emblem:0", 2);
+    b = layer(map, b, "sym:4", "front");
+    b = addSymbol(b, { role: "hill", x: 10, y: 10, w: 20, h: 10, variant: 0.5, flip: false }).edits;
+    const keys = ["sym:2", "town:0", "label:3", "sym:9", "emblem:0", "sym:4", "add:1"];
+    expect([...changedKeys(a, b)].sort()).toEqual([...keys].sort());
+    expect([...changedKeys(b, a)].sort()).toEqual([...keys].sort()); // undo redraws the same items
+    expect(changedKeys(b, b).size).toBe(0);
+  });
+});
+
 describe("picking boxes", () => {
   it("covers exactly where a drawing is drawn, mirrored or not", () => {
     // Test drawings are 40 by 30 with the anchor at the middle of the base.
@@ -274,7 +291,7 @@ describe("picking boxes", () => {
 describe("export", () => {
   it("embeds the typeface in a saved SVG", () => {
     const svg = svgOf(applyEdits(map, NO_EDITS), "@font-face{font-family:'IM Fell English';src:url(data:font/woff2;base64,AAAA)}");
-    expect(svg).toMatch(/^<svg[^>]*><defs>.*?<\/defs><style>@font-face/s);
+    expect(svg).toMatch(/^<svg[^>]*><defs[^>]*>.*?<\/defs><style>@font-face/s);
   });
 
   it("is a valid standalone SVG file, with nothing drawn in the paper margin", () => {

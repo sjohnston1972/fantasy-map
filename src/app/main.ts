@@ -4,8 +4,8 @@
 import { generate, type GeneratedMap } from "../gen/pipeline";
 import { renderRelief } from "../gen/render";
 import { toInkSet, type InkSet, type InkSymbol } from "../gen/inkset";
-import { asDrawing, drawingOf, drawnBoxOf, frameFor, renderSvg } from "../gen/svg";
-import { addSymbol, applyEdits, editCount, isSymbolKey, layer, move, NO_EDITS, remove, rename, resize, swap, type AddedSymbol, type EditedMap, type Edits, type LayerMove } from "../gen/edits";
+import { asDrawing, drawingOf, drawnBoxOf, frameFor, layerOrder, renderItems, renderSvg } from "../gen/svg";
+import { addSymbol, applyEdits, changedKeys, editCount, isSymbolKey, layer, move, NO_EDITS, remove, rename, resize, swap, type AddedSymbol, type EditedMap, type Edits, type LayerMove } from "../gen/edits";
 import { embeddedFontCss, pngSize, saveBlob, svgToPng, svgToThumb, toBase64 } from "./export";
 import { saveMyMap } from "./mymaps";
 import { drawnBox, MapZoom, MAX_ZOOM, previewTransform, type View } from "./zoom";
@@ -51,6 +51,8 @@ const els = {
   forward: $<HTMLButtonElement>("#forward"),
   backward: $<HTMLButtonElement>("#backward"),
   undo: $<HTMLButtonElement>("#undo"),
+  redo: $<HTMLButtonElement>("#redo"),
+  selBar: $<HTMLElement>("#sel-bar"),
   rename: $<HTMLFormElement>("#rename"),
   labelText: $<HTMLInputElement>("#label-text"),
   editHint: $<HTMLElement>("#edit-hint"),
@@ -85,6 +87,10 @@ const els = {
 // slider can be tried on the part of the map being looked at.
 const zoom = new MapZoom(els.map, applyView, previewView);
 
+// The map box must never scroll (see app.css); browsers without "overflow: clip" can still
+// scroll a hidden overflow, so put it straight back if they do.
+for (const el of [els.mapBox, els.map]) el.addEventListener("scroll", () => el.scrollTop || el.scrollLeft ? el.scrollTo(0, 0) : undefined);
+
 // A share link (?map=code) opens the map it names; otherwise the page starts on a new seed.
 const params = new URLSearchParams(location.search);
 const shared = decodeSettings(params.get("map") ?? "");
@@ -95,6 +101,7 @@ let ink: InkSet | undefined; // hand-inked symbols, once the packs have loaded
 // those changes (for undo), and the item currently picked.
 let edits: Edits = NO_EDITS;
 let undoStack: Edits[] = [];
+let redoStack: Edits[] = []; // undone changes, until a new change is made
 let edited: EditedMap | null = null;
 let picked: string[] = []; // keys of the picked items; the last is the one acted on alone
 let editing = false;
@@ -183,6 +190,7 @@ function draw() {
     edits = linkEdits ?? NO_EDITS;
     linkEdits = null;
     undoStack = [];
+    redoStack = [];
     picked = [];
     paint(map);
     // A short fade-in, so every redraw is visible even when little changes.
@@ -252,6 +260,7 @@ function previewView(drawn: View, live: View) {
   svg.style.transform = `scale(${t.k}) translate3d(${t.tx}px, ${t.ty}px, 0)`;
   els.relief.style.visibility = "hidden"; // shown again, lined up, when the map is redrawn
   els.selBox.hidden = true; // likewise
+  els.selBar.hidden = true;
   showZoomState();
 }
 
@@ -302,38 +311,116 @@ els.editMode.addEventListener("click", () => {
     select(null);
     closePalette();
   }
-  else els.map.focus();
+  else els.map.focus({ preventScroll: true });
 });
 
 function commit(next: Edits) {
   if (next === edits || !current) return;
   undoStack.push(edits);
+  redoStack = [];
+  switchTo(next);
+}
+
+// Show a different set of edits, redrawing only the items that differ.
+function switchTo(next: Edits) {
+  if (!current) return;
+  const keys = changedKeys(edits, next);
   edits = next;
-  paint(current);
+  edited = applyEdits(current, edits);
+  hitList = null;
+  if (!patchItems(keys)) paint(current);
+  showSelection();
   void updateLink();
+}
+
+// Redraw some items in place: replace or remove each one, adding any drawings it needs, and
+// put it back at its place in its layer's drawing order. Returns false when a full redraw
+// is the better choice (a very large change, or no drawing on the page yet).
+const SVG_NS = "http://www.w3.org/2000/svg";
+function patchItems(keys: Set<string>): boolean {
+  const svg = els.map.querySelector("svg");
+  if (!svg || !edited || !current) return false;
+  if (keys.size === 0) return true;
+  if (keys.size > 1500) return false;
+  const { width, height } = current.settings;
+  const input = { width, height, water: edited.water, symbols: edited.symbols, towns: edited.towns, labels: edited.labels, ink };
+  const { items, defs, paths } = renderItems(input, keys);
+  const parse = (markup: string) => {
+    const g = document.createElementNS(SVG_NS, "g");
+    g.innerHTML = markup;
+    return g.firstElementChild!;
+  };
+  // New drawings and river-name paths go into the SVG's own definitions.
+  const drawings = svg.querySelector('defs[data-layer="drawings"]') ?? svg.insertBefore(document.createElementNS(SVG_NS, "defs"), svg.firstChild);
+  for (const [id, markup] of defs) if (!svg.querySelector(`#${CSS.escape(id)}`)) drawings.append(parse(markup));
+  const riverDefs = svg.querySelector('defs[data-layer="river-paths"]');
+  for (const [id, markup] of paths) {
+    const old = svg.querySelector(`#${CSS.escape(id)}`);
+    if (old) old.replaceWith(parse(markup));
+    else riverDefs?.append(parse(markup));
+  }
+  // Take the changed items out, then put each back before the next item in its layer.
+  const byKey = new Map<string, Element>();
+  for (const el of els.map.querySelectorAll<SVGElement>("[data-key]")) byKey.set(el.dataset.key!, el);
+  for (const key of keys) {
+    byKey.get(key)?.remove();
+    byKey.delete(key);
+  }
+  const order = layerOrder(edited);
+  for (const layer of Object.keys(order) as (keyof typeof order)[]) {
+    const list = order[layer];
+    const group = svg.querySelector(`g[data-layer="${layer}"]`);
+    if (!group) continue;
+    // Walk the layer from the front, so "the next item" is always already in place.
+    let next: Element | null = null;
+    for (let i = list.length - 1; i >= 0; i--) {
+      const key = list[i];
+      const markup = keys.has(key) ? items.get(key) : undefined;
+      if (markup !== undefined) {
+        const el = parse(markup);
+        group.insertBefore(el, next);
+        byKey.set(key, el);
+      }
+      next = byKey.get(key) ?? next;
+    }
+  }
+  return true;
 }
 
 // Record a change that is already showing on the page (a finished drag, a nudge, a delete),
 // without rebuilding the whole drawing, which takes a noticeable moment on a busy map.
 function commitShown(next: Edits) {
-  if (next === edits || !current) return;
-  undoStack.push(edits);
-  edits = next;
-  edited = applyEdits(current, edits);
-  hitList = null;
-  showSelection();
-  void updateLink();
+  commit(next);
 }
 
 // Move the picked items by (dx, dy) map pixels. `shown` says the page already shows them
 // there (at the end of a drag); otherwise they are shifted on the page here.
-function movePicked(keys: string[], dx: number, dy: number, shown: boolean) {
+function movePicked(picked: string[], dx: number, dy: number, shown: boolean) {
+  const keys = [...picked, ...followers(picked)];
   if (!shown)
     for (const key of keys) {
       const el = itemEl(key);
       el?.setAttribute("transform", `translate(${dx.toFixed(1)} ${dy.toFixed(1)}) ${el.getAttribute("transform") ?? ""}`.trim());
     }
   commitShown(keys.reduce((e, key) => move(e, key, dx, dy), edits));
+}
+
+// A town's name and banner go wherever the town goes, unless they are being moved
+// themselves (picked along with it).
+function followers(keys: string[]): string[] {
+  if (!edited) return [];
+  const moving = new Set(keys);
+  const out = new Set<string>();
+  for (const key of keys) {
+    if (!key.startsWith("town:")) continue;
+    const id = Number(key.slice(5));
+    for (const l of edited.labels.labels) if (l.ref === id && !l.path && !moving.has(`label:${l.id}`)) out.add(`label:${l.id}`);
+    edited.labels.emblems.forEach((em, k) => {
+      const e = `emblem:${em.index ?? k}`;
+      if (em.town === id && !moving.has(e)) out.add(e);
+    });
+  }
+  return [...out];
 }
 
 // ---- Picking with the pointer ----
@@ -371,6 +458,41 @@ function hits(): Hit[] {
   return list;
 }
 
+// An item's drawn box on the screen, from the map's own geometry. Browsers disagree about the
+// boxes of SVG drawings (Firefox reports drawings placed with <use> at a fraction of their
+// size), so the page never asks them.
+function screenBox(h: Hit): DOMRect {
+  const { width: W, height: H } = current!.settings;
+  const fr = frameFor(W, H);
+  const r = els.map.getBoundingClientRect();
+  const v = zoom.view;
+  const sx = (x: number) => r.left + ((fr.dx + x * fr.scale - v.x) / v.w) * r.width;
+  const sy = (y: number) => r.top + ((fr.dy + y * fr.scale - v.y) / v.h) * r.height;
+  return new DOMRect(sx(h.x), sy(h.y), sx(h.x + h.w) - sx(h.x), sy(h.y + h.h) - sy(h.y));
+}
+
+// Keys of the items whose boxes overlap a screen rectangle, back to front.
+function keysIn(rect: DOMRect, keep: (key: string) => boolean = () => true): string[] {
+  if (!current) return [];
+  return hits()
+    .filter((h) => keep(h.key))
+    .filter((h) => {
+      const b = screenBox(h);
+      return b.left < rect.right && b.right > rect.left && b.top < rect.bottom && b.bottom > rect.top;
+    })
+    .map((h) => h.key);
+}
+
+// For the browser tests (e2e/): where an item is on the screen, as the page itself sees it.
+(window as unknown as { inkMap: unknown }).inkMap = {
+  screenBox: (key: string) => {
+    const h = hits().find((x) => x.key === key);
+    return h ? screenBox(h).toJSON() : null;
+  },
+  keys: () => hits().map((h) => h.key),
+  state: () => ({ edits, picked, undo: undoStack.length, view: zoom.view }),
+};
+
 function pickAt(e: PointerEvent): string | null {
   if (!current) return null;
   const { width: W, height: H } = current.settings;
@@ -382,18 +504,28 @@ function pickAt(e: PointerEvent): string | null {
   const slack = (3 * zoom.view.w) / els.map.getBoundingClientRect().width / fr.scale;
   const under = hits().filter((h) => x >= h.x - slack && x <= h.x + h.w + slack && y >= h.y - slack && y <= h.y + h.h + slack);
   if (!under.length) return null;
+  // A picked item under the pointer wins, so a picked group can always be grabbed, even
+  // where a name or town is drawn over it.
+  const pickedUnder = under.filter((h) => picked.includes(h.key));
+  if (pickedUnder.length) return pickedUnder[pickedUnder.length - 1].key;
   const inked = (e.target as Element).closest<SVGElement>("[data-key]")?.dataset.key;
   if (inked && under.some((h) => h.key === inked)) return inked;
   return under[under.length - 1].key;
 }
 
 els.undo.addEventListener("click", undo);
+els.redo.addEventListener("click", redo);
+function redo() {
+  const next = redoStack.pop();
+  if (!next || !current) return;
+  undoStack.push(edits);
+  switchTo(next);
+}
 function undo() {
   const prev = undoStack.pop();
   if (!prev || !current) return;
-  edits = prev;
-  paint(current);
-  void updateLink();
+  redoStack.push(edits);
+  switchTo(prev);
 }
 
 // ---- Picking one or several items ----
@@ -449,7 +581,7 @@ els.rename.addEventListener("submit", (e) => {
   e.preventDefault();
   const key = primary();
   if (picked.length === 1 && key?.startsWith("label:")) commit(rename(edits, key, els.labelText.value));
-  els.map.focus();
+  els.map.focus({ preventScroll: true });
 });
 
 function itemEl(key: string): SVGGraphicsElement | null {
@@ -490,19 +622,18 @@ function showSelection() {
   els.copy.disabled = els.cut.disabled = !picked.some((key) => !key.startsWith("label:"));
   els.paste.disabled = !clipboard.length;
   els.undo.disabled = undoStack.length === 0;
+  els.redo.disabled = redoStack.length === 0;
   els.rename.hidden = !isLabel;
   if (isLabel) els.labelText.value = edited?.labels.labels.find((l) => `label:${l.id}` === one)?.text ?? "";
   const n = editCount(edits);
   els.editHint.textContent =
     picked.length > 1
-      ? `${picked.length} items picked. Drag any of them to move them all; Delete, S, ] and [ apply to all; Ctrl+C copies.`
+      ? `${picked.length} items picked. Drag any of them to move them all, or a corner to resize.`
       : one
         ? isLabel
-          ? "Drag to move, change the wording below, or press Delete. Shift-click to pick more."
-          : isSymbolKey(one)
-            ? "Drag to move, S swaps the drawing, ] brings it in front of what it overlaps and [ sends it behind (Shift for all the way), Delete removes it. Shift-click to pick more."
-            : "Drag to move, press S to swap the drawing, or Delete to remove it. Shift-click to pick more."
-        : `Click a symbol, town or name to pick it; Shift-drag across the map to pick several.${n ? ` ${n} ${n === 1 ? "change" : "changes"} so far.` : ""}`;
+          ? "Drag to move, or change the wording."
+          : "Drag to move, or a corner to resize. Shift-click to pick more."
+        : `Click a symbol, town or name to pick it; Shift-drag to pick several.${n ? ` ${n} ${n === 1 ? "change" : "changes"} so far.` : ""}`;
 }
 
 // ---- Dragging ----
@@ -536,6 +667,7 @@ function setAreaMode(on: boolean) {
 
 els.map.addEventListener("pointerdown", (e) => {
   if (e.button !== 0) return;
+  if (document.activeElement !== els.map) els.map.focus({ preventScroll: true });
   lastPointer = { x: e.clientX, y: e.clientY };
   if (zoom.pinching || (drag && drag.pointer !== e.pointerId) || (box && box.pointer !== e.pointerId)) {
     cancelDrag();
@@ -586,12 +718,14 @@ els.map.addEventListener("pointerdown", (e) => {
   // Screen pixels to map pixels: the zoomed view, and the frame's slight shrink inside it.
   const { width: W, height: H } = current!.settings;
   const scale = svg.viewBox.baseVal.width / svg.getBoundingClientRect().width / frameFor(W, H).scale;
-  const items = picked.flatMap((k) => {
+  // The picked items, and the names and banners of any picked towns, move together.
+  const items = [...picked, ...followers(picked)].flatMap((k) => {
     const it = itemEl(k);
     return it ? [{ key: k, el: it, base: it.getAttribute("transform") ?? "" }] : [];
   });
   drag = { pointer: e.pointerId, x: e.clientX, y: e.clientY, scale, items, dx: 0, dy: 0 };
   els.selBox.hidden = true;
+  els.selBar.hidden = true;
   capture(e);
   e.preventDefault();
 });
@@ -628,12 +762,7 @@ const endDrag = (e: PointerEvent) => {
     cancelBox();
     // Everything whose drawing overlaps the box is picked.
     if (r.width > 3 || r.height > 3) {
-      const inside = [...els.map.querySelectorAll<SVGGraphicsElement>("[data-key]")]
-        .filter((el) => {
-          const b = el.getBoundingClientRect();
-          return b.width + b.height > 0 && b.left < r.right && b.right > r.left && b.top < r.bottom && b.bottom > r.top;
-        })
-        .map((el) => el.dataset.key!);
+      const inside = keysIn(r);
       picked = [...new Set([...(e.shiftKey || e.ctrlKey || e.metaKey ? picked : []), ...inside])];
       showSelection();
     }
@@ -686,7 +815,9 @@ document.addEventListener("keydown", (e) => {
   if (typing) return;
   if (e.ctrlKey || e.metaKey) {
     const k = e.key.toLowerCase();
-    if (k === "z") undo();
+    if (k === "z" && e.shiftKey) redo();
+    else if (k === "z") undo();
+    else if (k === "y") redo();
     else if (k === "c") {
       if (!copyPicked()) return; // nothing to copy: leave the browser's own copy alone
     }
@@ -723,13 +854,7 @@ document.addEventListener("keydown", (e) => {
 // Ctrl+A in edit mode picks every symbol in view (not towns or names), to move or delete a
 // whole patch at once.
 function pickAllSymbols() {
-  const r = els.map.getBoundingClientRect();
-  picked = [...els.map.querySelectorAll<SVGGraphicsElement>("[data-key^='sym:'], [data-key^='add:']")]
-    .filter((el) => {
-      const b = el.getBoundingClientRect();
-      return b.left < r.right && b.right > r.left && b.top < r.bottom && b.bottom > r.top;
-    })
-    .map((el) => el.dataset.key!);
+  picked = keysIn(els.map.getBoundingClientRect(), isSymbolKey);
   showSelection();
 }
 
@@ -1066,9 +1191,10 @@ function screenToMap(x: number, y: number): { x: number; y: number } {
 // The screen box around the picked items.
 function pickedRect(): DOMRect | null {
   let l = Infinity, t = Infinity, r = -Infinity, b = -Infinity;
-  for (const key of picked) {
-    const rect = itemEl(key)?.getBoundingClientRect();
-    if (!rect || rect.width + rect.height === 0) continue;
+  const set = new Set(picked);
+  for (const h of hits()) {
+    if (!set.has(h.key)) continue;
+    const rect = screenBox(h);
     l = Math.min(l, rect.left);
     t = Math.min(t, rect.top);
     r = Math.max(r, rect.right);
@@ -1078,13 +1204,28 @@ function pickedRect(): DOMRect | null {
 }
 
 function placeSelBox(rect = editing && !drag && !resizing ? pickedRect() : null) {
+  // The bar of actions shows only while the picked items are still (not mid-gesture).
+  els.selBar.hidden = !rect || !!resizing;
   if (!rect) {
     els.selBox.hidden = true;
     return;
   }
   const box = els.mapBox.getBoundingClientRect();
   els.selBox.hidden = false;
-  Object.assign(els.selBox.style, { left: `${rect.left - box.left}px`, top: `${rect.top - box.top}px`, width: `${rect.width}px`, height: `${rect.height}px` });
+  // A little room around the items, so the box never sits on their ink.
+  const pad = 3;
+  Object.assign(els.selBox.style, { left: `${rect.left - box.left - pad}px`, top: `${rect.top - box.top - pad}px`, width: `${rect.width + 2 * pad}px`, height: `${rect.height + 2 * pad}px` });
+  if (!els.selBar.hidden) {
+    // Above the box (clear of its handles), or below it when there is no room above; kept
+    // inside the map.
+    const bw = els.selBar.offsetWidth;
+    const bh = els.selBar.offsetHeight;
+    const gap = 16;
+    let top = rect.top - box.top - pad - gap - bh;
+    if (top < 8) top = rect.bottom - box.top + pad + gap;
+    const left = Math.min(Math.max(8, rect.left - box.left + rect.width / 2 - bw / 2), box.width - bw - 8);
+    Object.assign(els.selBar.style, { left: `${left}px`, top: `${Math.min(top, box.height - bh - 8)}px` });
+  }
 }
 
 let resizing: { pointer: number; fixed: { x: number; y: number }; start: { x: number; y: number }; rect: DOMRect; items: { key: string; el: SVGGraphicsElement; base: string }[]; factor: number } | null = null;
@@ -1140,10 +1281,15 @@ for (const handle of els.selBox.querySelectorAll<HTMLElement>("[data-corner]")) 
     // the fixed corner by the same factor, so the whole group scales about that corner.
     const c = screenToMap(fixed.x, fixed.y);
     let next = edits;
+    const resized = new Set(items.map((it) => it.key));
     for (const { key } of items) {
       const a = anchorOf(key);
       next = resize(next, key, factor);
-      if (a) next = move(next, key, (a.x - c.x) * (factor - 1), (a.y - c.y) * (factor - 1));
+      if (!a) continue;
+      const [dx, dy] = [(a.x - c.x) * (factor - 1), (a.y - c.y) * (factor - 1)];
+      next = move(next, key, dx, dy);
+      // A town's name and banner keep their place beside it.
+      for (const f of followers([key])) if (!resized.has(f)) next = move(next, f, dx, dy);
     }
     commit(next);
   };

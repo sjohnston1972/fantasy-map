@@ -37,3 +37,7 @@ public/admin/gallery/app.js.map
 example artifacts/*.zip
 example artifacts/fantasy_map_icon_sheets/
 .tmp/
+
+# Browser test output
+test-results/
+playwright-report/
