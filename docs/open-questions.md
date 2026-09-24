@@ -348,6 +348,6 @@ can only be reopened by dropping its file again on the Import page.
   place instead (a forest's trees grow where they stand).
 - Works for symbols, added drawings, towns, landmarks, bridges, banners (drawn size) and
   names (type size, growing up from the baseline). Sizes are kept between 0.2 and 5 times
-  the drawn size, travel in share links (\`r\`), and copies keep them.
+  the drawn size, travel in share links (as `r`), and copies keep them.
 - Towns and names keep their positions for labelling purposes: a much bigger town does not
   push its name away, so very large resizes may need the name moved by hand.
