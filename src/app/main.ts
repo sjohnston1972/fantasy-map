@@ -4,7 +4,7 @@
 import { generate, type GeneratedMap } from "../gen/pipeline";
 import { renderRelief } from "../gen/render";
 import { toInkSet, type InkSet, type InkSymbol } from "../gen/inkset";
-import { asDrawing, drawingOf, frameFor, renderSvg } from "../gen/svg";
+import { asDrawing, drawingOf, drawnBoxOf, frameFor, renderSvg } from "../gen/svg";
 import { addSymbol, applyEdits, editCount, isSymbolKey, layer, move, NO_EDITS, remove, rename, swap, type AddedSymbol, type EditedMap, type Edits, type LayerMove } from "../gen/edits";
 import { embeddedFontCss, pngSize, saveBlob, svgToPng, svgToThumb, toBase64 } from "./export";
 import { saveMyMap } from "./mymaps";
@@ -211,6 +211,7 @@ function svgFor(map: EditedMap, fontCss?: string): string {
 function paint(map: GeneratedMap) {
   current = map;
   edited = applyEdits(map, edits);
+  hitList = null;
   const { width, height } = map.settings;
   els.mapBox.style.aspectRatio = `${width} / ${height}`;
   els.map.innerHTML = svgFor(edited);
@@ -307,6 +308,80 @@ function commit(next: Edits) {
   void updateLink();
 }
 
+// Record a change that is already showing on the page (a finished drag, a nudge, a delete),
+// without rebuilding the whole drawing, which takes a noticeable moment on a busy map.
+function commitShown(next: Edits) {
+  if (next === edits || !current) return;
+  undoStack.push(edits);
+  edits = next;
+  edited = applyEdits(current, edits);
+  hitList = null;
+  showSelection();
+  void updateLink();
+}
+
+// Move the picked items by (dx, dy) map pixels. `shown` says the page already shows them
+// there (at the end of a drag); otherwise they are shifted on the page here.
+function movePicked(keys: string[], dx: number, dy: number, shown: boolean) {
+  if (!shown)
+    for (const key of keys) {
+      const el = itemEl(key);
+      el?.setAttribute("transform", `translate(${dx.toFixed(1)} ${dy.toFixed(1)}) ${el.getAttribute("transform") ?? ""}`.trim());
+    }
+  commitShown(keys.reduce((e, key) => move(e, key, dx, dy), edits));
+}
+
+// ---- Picking with the pointer ----
+// Browsers count a click as on a drawing only where there is ink, and these drawings are
+// mostly gaps between strokes, so a click in the middle of a mountain or between the
+// letters of a name used to miss. Instead, anything whose drawn box is under the pointer
+// can be picked: the one whose ink is under the pointer if there is one, otherwise the one
+// drawn on top.
+
+interface Hit {
+  key: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+let hitList: Hit[] | null = null; // in drawing order, back to front; rebuilt after changes
+
+function hits(): Hit[] {
+  if (hitList || !edited || !current) return hitList ?? [];
+  const map = edited;
+  const input = { width: current.settings.width, symbols: map.symbols, towns: map.towns, labels: map.labels, ink };
+  const list: Hit[] = [];
+  const add = (key: string) => {
+    const d = asDrawing(input, key);
+    if (d) list.push({ key, ...drawnBoxOf(d, ink) });
+  };
+  map.towns.bridges.forEach((b, k) => add(`bridge:${b.index ?? k}`));
+  map.symbols.forEach((sym, k) => list.push({ key: sym.key ?? `sym:${k}`, ...drawnBoxOf(sym, ink) }));
+  for (const l of map.towns.landmarks) add(`landmark:${l.id}`);
+  for (const p of map.towns.places) add(`town:${p.id}`);
+  map.labels.emblems.forEach((em, k) => add(`emblem:${em.index ?? k}`));
+  for (const l of map.labels.labels) list.push({ key: `label:${l.id}`, ...l.box });
+  hitList = list;
+  return list;
+}
+
+function pickAt(e: PointerEvent): string | null {
+  if (!current) return null;
+  const { width: W, height: H } = current.settings;
+  const fr = frameFor(W, H);
+  const p = zoom.toMap(e.clientX, e.clientY);
+  const x = (p.x - fr.dx) / fr.scale;
+  const y = (p.y - fr.dy) / fr.scale;
+  // A little slack around each box: 3 screen pixels, in map pixels.
+  const slack = (3 * zoom.view.w) / els.map.getBoundingClientRect().width / fr.scale;
+  const under = hits().filter((h) => x >= h.x - slack && x <= h.x + h.w + slack && y >= h.y - slack && y <= h.y + h.h + slack);
+  if (!under.length) return null;
+  const inked = (e.target as Element).closest<SVGElement>("[data-key]")?.dataset.key;
+  if (inked && under.some((h) => h.key === inked)) return inked;
+  return under[under.length - 1].key;
+}
+
 els.undo.addEventListener("click", undo);
 function undo() {
   const prev = undoStack.pop();
@@ -334,9 +409,10 @@ function forPicked(change: (e: Edits, key: string) => Edits, keys: string[] = pi
 els.del.addEventListener("click", () => deletePicked());
 function deletePicked() {
   if (!picked.length) return;
-  forPicked(remove);
+  const keys = picked;
+  for (const key of keys) itemEl(key)?.remove();
   picked = [];
-  showSelection();
+  commitShown(keys.reduce(remove, edits));
 }
 els.swap.addEventListener("click", swapSelected);
 // Shift-click goes all the way to the front or back.
@@ -467,7 +543,8 @@ els.map.addEventListener("pointerdown", (e) => {
     e.preventDefault();
     return;
   }
-  const el = editing ? (e.target as Element).closest<SVGGraphicsElement>("[data-key]") : null;
+  const hitKey = editing ? pickAt(e) : null;
+  const el = hitKey ? itemEl(hitKey) : null;
   const adding = e.shiftKey || e.ctrlKey || e.metaKey;
   // Picking box: Shift-drag on empty map, or a drag in "Select area" mode that does not
   // start on an already picked item (those drag the group, as always).
@@ -560,7 +637,8 @@ const endDrag = (e: PointerEvent) => {
   const { items, dx, dy, scale } = drag;
   drag = null;
   // Ignore the tiny wobble of a click.
-  if (Math.hypot(dx, dy) > 3 * scale) forPicked((ed, key) => move(ed, key, dx, dy), items.map((it) => it.key));
+  if (Math.hypot(dx, dy) > 3 * scale) movePicked(items.map((it) => it.key), dx, dy, true);
+  else for (const it of items) it.base ? it.el.setAttribute("transform", it.base) : it.el.removeAttribute("transform");
 };
 els.map.addEventListener("pointerup", endDrag);
 els.map.addEventListener("pointercancel", endDrag);
@@ -626,7 +704,7 @@ document.addEventListener("keydown", (e) => {
   else if (e.key.toLowerCase() === "s") swapSelected();
   else if (e.code === "BracketRight") layerSelected(e.shiftKey ? "front" : "forward");
   else if (e.code === "BracketLeft") layerSelected(e.shiftKey ? "back" : "backward");
-  else if (nudge[e.key]) forPicked((ed, key) => move(ed, key, ...nudge[e.key]));
+  else if (nudge[e.key]) movePicked(picked, ...nudge[e.key], false);
   else return;
   e.preventDefault();
 });

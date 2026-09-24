@@ -6,7 +6,7 @@ import { toInkSet } from "../src/gen/inkset";
 import { generate } from "../src/gen/pipeline";
 import { DEFAULT_SETTINGS } from "../src/gen/settings";
 import { Resvg } from "@resvg/resvg-js";
-import { asDrawing, drawingOf, frameFor, renderSvg } from "../src/gen/svg";
+import { asDrawing, drawingOf, drawnBoxOf, frameFor, renderSvg } from "../src/gen/svg";
 
 const map = generate({ ...DEFAULT_SETTINGS, seed: 482913 });
 const drawing = (id: string) => ({ id, w: 40, h: 30, anchorX: 0.5, anchorY: 1, facing: "none", viewBox: "0 0 40 30", body: '<path fill="#000" d="M0 0h40v30z"/>' });
@@ -217,6 +217,16 @@ describe("copy and paste", () => {
       copy.box.forEach((v, i) => expect(Math.abs(v - orig.box[i]), key).toBeLessThanOrEqual(0.2));
     }
     expect(asDrawing(input, `label:${m.labels.labels[0].id}`)).toBeNull();
+  });
+});
+
+describe("picking boxes", () => {
+  it("covers exactly where a drawing is drawn, mirrored or not", () => {
+    // Test drawings are 40 by 30 with the anchor at the middle of the base.
+    const d = { role: "mountain", x: 100, y: 200, w: 80, h: 30, variant: 0.1, flip: false };
+    expect(drawnBoxOf(d, ink)).toEqual({ x: 80, y: 170, w: 40, h: 30 }); // fitted by height
+    expect(drawnBoxOf({ ...d, flip: true }, ink)).toEqual({ x: 80, y: 170, w: 40, h: 30 });
+    expect(drawnBoxOf({ ...d, role: "unknown" }, ink)).toEqual({ x: 60, y: 170, w: 80, h: 30 }); // no drawing: its box
   });
 });
 

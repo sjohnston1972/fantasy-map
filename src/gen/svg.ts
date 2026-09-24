@@ -428,3 +428,16 @@ export function asDrawing(m: Pick<SvgInput, "width" | "symbols" | "towns" | "lab
   }
   return null;
 }
+
+// The box a drawing actually fills on the map, for picking it with the pointer: the ink
+// drawing fitted into its w by h box around its anchor (mirrored if flipped), or the plain
+// box when the drawings have not loaded.
+export function drawnBoxOf(d: { role: string; x: number; y: number; w: number; h: number; variant: number; flip: boolean }, ink?: InkSet): { x: number; y: number; w: number; h: number } {
+  const icon = pickSymbol(ink, d.role, d.variant);
+  if (!icon) return { x: d.x - d.w / 2, y: d.y - d.h, w: d.w, h: d.h };
+  const k = Math.min(d.w / icon.w, d.h / icon.h);
+  const dw = icon.w * k;
+  const dh = icon.h * k;
+  const left = d.x - icon.anchorX * dw;
+  return { x: d.flip ? 2 * d.x - left - dw : left, y: d.y - icon.anchorY * dh, w: dw, h: dh };
+}

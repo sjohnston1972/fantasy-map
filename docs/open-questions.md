@@ -324,3 +324,17 @@ can only be reopened by dropping its file again on the Import page.
   their edits still land on the same symbols. Any change on the page (new seed, a slider)
   draws with the newest version. Links from a newer version than the page knows are drawn
   with the newest it has, with a note.
+
+## Picking and dragging fixes
+
+- Steven: "Selecting and dragging is clunky and unusable. Sometimes elements dont select,
+  sometimes they fail to drag."
+- **Cause 1, picking:** browsers only count a click as on a drawing where there is ink, and
+  these drawings are mostly gaps. Measured on the default map, a click in the middle of a
+  mountain missed 40% of the time, hills 31%, bridges 5 in 8, names 1 in 8; a miss picked
+  nothing, and when zoomed in the drag panned the map instead. Now anything whose drawn box
+  is under the pointer can be picked (the one whose ink is hit, else the one drawn on top).
+  Measured again: no misses; a click takes about 24 ms.
+- **Cause 2, freezes:** every change rebuilt the whole drawing (100 to 150 ms of script,
+  plus the browser's redraw). Moves (drag or arrows) and deletes now update only the items
+  concerned (4 to 7 ms). Swaps, layering, pasting and undo still rebuild.
