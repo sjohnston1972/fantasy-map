@@ -281,3 +281,21 @@ can only be reopened by dropping its file again on the Import page.
     placing a town also add a name label?
   - A drawing is remembered by its position in its pack, so rebuilding a pack with new
     icons can change which drawing an old link shows (the same is true of swaps).
+
+## Smooth panning, picking several items, copy and paste
+
+- **Smooth panning:** mid-gesture the drawn picture is moved with a CSS transform and the
+  map is redrawn once when the gesture ends (a redraw costs about 90 ms; before, every
+  pointer move paid it).
+- **Picking several items:** Shift-click or Ctrl-click adds or removes; Shift-drag on empty
+  map (or "Select area", for touch screens) picks everything the box touches; Ctrl+A picks
+  every symbol in view. Moving (drag or arrows), Delete, Swap and layering apply to all
+  picked items as one undo step. Renaming needs exactly one name picked.
+- **Copy and paste:** Copy, Cut, Paste buttons and Ctrl+C, Ctrl+X, Ctrl+V. Copies keep
+  their layout and paste centred on the pointer (or the middle of the view from the
+  button), picked and ready to drag. Towns, landmarks, bridges and banners copy as plain
+  drawings (no name, roads or banner). Names are not copied. The copies live on the page,
+  not the system clipboard, and survive generating a new map.
+  - Open question: pasting many items makes long links (47 pasted symbols made a link of
+    about 1,200 characters). Fine for copying and gallery entries; some chat apps may cut
+    very long links.

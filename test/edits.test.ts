@@ -6,7 +6,7 @@ import { toInkSet } from "../src/gen/inkset";
 import { generate } from "../src/gen/pipeline";
 import { DEFAULT_SETTINGS } from "../src/gen/settings";
 import { Resvg } from "@resvg/resvg-js";
-import { drawingOf, frameFor, renderSvg } from "../src/gen/svg";
+import { asDrawing, drawingOf, frameFor, renderSvg } from "../src/gen/svg";
 
 const map = generate({ ...DEFAULT_SETTINGS, seed: 482913 });
 const drawing = (id: string) => ({ id, w: 40, h: 30, anchorX: 0.5, anchorY: 1, facing: "none", viewBox: "0 0 40 30", body: '<path fill="#000" d="M0 0h40v30z"/>' });
@@ -192,6 +192,31 @@ describe("adding symbols from the library", () => {
     const svg = renderSvg({ width: map.settings.width, height: map.settings.height, water: map.water, symbols: applyEdits(map, e).symbols });
     expect(svg).not.toContain("undefined");
     expect(item(svg, "add:1")).toContain("<circle");
+  });
+});
+
+describe("copy and paste", () => {
+  // The <use> placement (position and size) inside an item's markup.
+  const placement = (svg: string, key: string) => {
+    const m = item(svg, key)!.match(/<use href="([^"]+)" x="([^"]+)" y="([^"]+)" width="([^"]+)" height="([^"]+)"/)!;
+    return { href: m[1], box: m.slice(2).map(Number) };
+  };
+
+  it("copies any drawn item as a drawing that pastes back exactly on top of it", () => {
+    const m = applyEdits(map, NO_EDITS);
+    const input = { width: map.settings.width, symbols: m.symbols, towns: m.towns, labels: m.labels, ink };
+    const svg = svgOf(m);
+    const keys = [`sym:${map.symbols.findIndex((s) => s.role === "mountain")}`, `town:${m.towns.places[0].id}`, `emblem:0`];
+    for (const key of keys) {
+      const d = asDrawing(input, key)!;
+      expect(d, key).not.toBeNull();
+      const pasted = addSymbol(NO_EDITS, d);
+      // Positions are kept to a tenth of a pixel, so the copy may sit that far off.
+      const [copy, orig] = [placement(svgOf(applyEdits(map, pasted.edits)), pasted.key), placement(svg, key)];
+      expect(copy.href, key).toBe(orig.href);
+      copy.box.forEach((v, i) => expect(Math.abs(v - orig.box[i]), key).toBeLessThanOrEqual(0.2));
+    }
+    expect(asDrawing(input, `label:${m.labels.labels[0].id}`)).toBeNull();
   });
 });
 

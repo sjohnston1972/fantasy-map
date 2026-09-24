@@ -4,8 +4,8 @@
 import { generate, type GeneratedMap } from "../gen/pipeline";
 import { renderRelief } from "../gen/render";
 import { toInkSet, type InkSet, type InkSymbol } from "../gen/inkset";
-import { drawingOf, frameFor, renderSvg } from "../gen/svg";
-import { addSymbol, applyEdits, editCount, isSymbolKey, layer, move, NO_EDITS, remove, rename, swap, type EditedMap, type Edits, type LayerMove } from "../gen/edits";
+import { asDrawing, drawingOf, frameFor, renderSvg } from "../gen/svg";
+import { addSymbol, applyEdits, editCount, isSymbolKey, layer, move, NO_EDITS, remove, rename, swap, type AddedSymbol, type EditedMap, type Edits, type LayerMove } from "../gen/edits";
 import { embeddedFontCss, pngSize, saveBlob, svgToPng, svgToThumb, toBase64 } from "./export";
 import { saveMyMap } from "./mymaps";
 import { MapZoom, MAX_ZOOM, previewTransform, type View } from "./zoom";
@@ -63,6 +63,10 @@ const els = {
   zoomFit: $<HTMLButtonElement>("#zoom-fit"),
   zoomLevel: $<HTMLOutputElement>("#zoom-level"),
   addOpen: $<HTMLButtonElement>("#add-open"),
+  copy: $<HTMLButtonElement>("#copy"),
+  cut: $<HTMLButtonElement>("#cut"),
+  paste: $<HTMLButtonElement>("#paste"),
+  selectArea: $<HTMLButtonElement>("#select-area"),
   palette: $<HTMLElement>("#palette"),
   palRole: $<HTMLSelectElement>("#pal-role"),
   palSize: $<HTMLInputElement>("#pal-size"),
@@ -88,7 +92,7 @@ let ink: InkSet | undefined; // hand-inked symbols, once the packs have loaded
 let edits: Edits = NO_EDITS;
 let undoStack: Edits[] = [];
 let edited: EditedMap | null = null;
-let selected: string | null = null;
+let picked: string[] = []; // keys of the picked items; the last is the one acted on alone
 let editing = false;
 // Edits carried by the link, applied to the first map drawn.
 let linkEdits: Edits | null = shared ? await decodeEdits(params.get("e") ?? "") : null;
@@ -173,7 +177,7 @@ function draw() {
     edits = linkEdits ?? NO_EDITS;
     linkEdits = null;
     undoStack = [];
-    selected = null;
+    picked = [];
     paint(map);
     // A short fade-in, so every redraw is visible even when little changes.
     els.map.classList.remove("fresh");
@@ -308,14 +312,39 @@ function undo() {
   void updateLink();
 }
 
-els.del.addEventListener("click", () => selected && commit(remove(edits, selected)));
+// ---- Picking one or several items ----
+// Click picks one item; Shift-click (or Ctrl-click) adds or removes items; Shift-drag across
+// an empty part of the map (or "Select area" then drag, on touch screens) picks everything
+// in the box. Moving, deleting, swapping and layering apply to all the picked items at
+// once, as one undo step.
+
+const primary = () => picked[picked.length - 1] ?? null;
+
+// Apply one change to every picked item, as a single step.
+function forPicked(change: (e: Edits, key: string) => Edits, keys: string[] = picked) {
+  const next = keys.reduce(change, edits);
+  commit(next);
+  return next;
+}
+
+els.del.addEventListener("click", () => deletePicked());
+function deletePicked() {
+  if (!picked.length) return;
+  forPicked(remove);
+  picked = [];
+  showSelection();
+}
 els.swap.addEventListener("click", swapSelected);
 // Shift-click goes all the way to the front or back.
 els.forward.addEventListener("click", (e) => layerSelected(e.shiftKey ? "front" : "forward"));
 els.backward.addEventListener("click", (e) => layerSelected(e.shiftKey ? "back" : "backward"));
 function layerSelected(how: LayerMove) {
-  if (!isSymbolKey(selected) || !current) return;
-  const next = layer(current, edits, selected, how);
+  const keys = picked.filter(isSymbolKey);
+  if (!keys.length || !current) return;
+  const map = current;
+  // Bringing forward, the front-most goes first so the group keeps its own order.
+  const order = how === "forward" || how === "front" ? [...keys].reverse() : keys;
+  const next = order.reduce((e, key) => layer(map, e, key, how), edits);
   if (next === edits) {
     els.editHint.textContent = how === "forward" || how === "front" ? "Already in front of everything it touches." : "Already behind everything it touches.";
     return;
@@ -323,14 +352,18 @@ function layerSelected(how: LayerMove) {
   commit(next);
 }
 function swapSelected() {
-  if (!selected || !edited) return;
-  const d = drawingOf(edited, selected);
-  if (d) commit(swap(edits, selected, d.variant, ink?.[d.role]?.length ?? 0));
+  if (!picked.length || !edited) return;
+  const map = edited;
+  forPicked((e, key) => {
+    const d = drawingOf(map, key);
+    return d ? swap(e, key, d.variant, ink?.[d.role]?.length ?? 0) : e;
+  });
 }
 
 els.rename.addEventListener("submit", (e) => {
   e.preventDefault();
-  if (selected?.startsWith("label:")) commit(rename(edits, selected, els.labelText.value));
+  const key = primary();
+  if (picked.length === 1 && key?.startsWith("label:")) commit(rename(edits, key, els.labelText.value));
   els.map.focus();
 });
 
@@ -338,51 +371,87 @@ function itemEl(key: string): SVGGraphicsElement | null {
   return els.map.querySelector<SVGGraphicsElement>(`[data-key="${key}"]`);
 }
 
+// Pick exactly this item (or nothing).
 function select(key: string | null) {
-  selected = key;
+  picked = key ? [key] : [];
   showSelection();
 }
 
-// Mark the picked item and set the tools to suit it.
-function showSelection() {
-  for (const el of els.map.querySelectorAll(".selected")) el.classList.remove("selected");
-  const el = selected ? itemEl(selected) : null;
-  if (!el) selected = null;
-  el?.classList.add("selected");
-  const isLabel = !!selected?.startsWith("label:");
-  const d = selected && edited ? drawingOf(edited, selected) : null;
-  els.del.disabled = !selected;
-  els.forward.disabled = els.backward.disabled = !isSymbolKey(selected);
-  els.swap.disabled = !d || (ink?.[d.role]?.length ?? 0) < 2;
-  els.undo.disabled = undoStack.length === 0;
-  els.rename.hidden = !isLabel;
-  if (isLabel) els.labelText.value = edited?.labels.labels.find((l) => `label:${l.id}` === selected)?.text ?? "";
-  const n = editCount(edits);
-  els.editHint.textContent = selected
-    ? isLabel
-      ? "Drag to move, change the wording below, or press Delete."
-      : isSymbolKey(selected)
-        ? "Drag to move, S swaps the drawing, ] brings it in front of what it overlaps and [ sends it behind (Shift for all the way), Delete removes it."
-        : "Drag to move, press S to swap the drawing, or Delete to remove it."
-    : `Click a symbol, town or name to pick it.${n ? ` ${n} ${n === 1 ? "change" : "changes"} so far.` : ""}`;
+// Add an item to the picked set, or take it out if it is already in.
+function togglePick(key: string) {
+  picked = picked.includes(key) ? picked.filter((k) => k !== key) : [...picked, key];
+  showSelection();
 }
 
-// Drag to move. The item follows the pointer as a preview; the move is recorded on release.
-// A pointer on an item (in edit mode) drags it; anywhere else it pans the zoomed map; a
-// second finger turns either into a pinch.
-let drag: { pointer: number; key: string; el: SVGGraphicsElement; x: number; y: number; scale: number; base: string; dx: number; dy: number } | null = null;
+// Mark the picked items and set the tools to suit them.
+function showSelection() {
+  for (const el of els.map.querySelectorAll(".selected")) el.classList.remove("selected");
+  picked = picked.filter((key) => {
+    const el = itemEl(key);
+    el?.classList.add("selected");
+    return !!el;
+  });
+  const one = picked.length === 1 ? picked[0] : null;
+  const isLabel = !!one?.startsWith("label:");
+  const swappable = picked.some((key) => {
+    const d = edited ? drawingOf(edited, key) : null;
+    return !!d && (ink?.[d.role]?.length ?? 0) >= 2;
+  });
+  els.del.disabled = !picked.length;
+  els.forward.disabled = els.backward.disabled = !picked.some(isSymbolKey);
+  els.swap.disabled = !swappable;
+  els.copy.disabled = els.cut.disabled = !picked.some((key) => !key.startsWith("label:"));
+  els.paste.disabled = !clipboard.length;
+  els.undo.disabled = undoStack.length === 0;
+  els.rename.hidden = !isLabel;
+  if (isLabel) els.labelText.value = edited?.labels.labels.find((l) => `label:${l.id}` === one)?.text ?? "";
+  const n = editCount(edits);
+  els.editHint.textContent =
+    picked.length > 1
+      ? `${picked.length} items picked. Drag any of them to move them all; Delete, S, ] and [ apply to all; Ctrl+C copies.`
+      : one
+        ? isLabel
+          ? "Drag to move, change the wording below, or press Delete. Shift-click to pick more."
+          : isSymbolKey(one)
+            ? "Drag to move, S swaps the drawing, ] brings it in front of what it overlaps and [ sends it behind (Shift for all the way), Delete removes it. Shift-click to pick more."
+            : "Drag to move, press S to swap the drawing, or Delete to remove it. Shift-click to pick more."
+        : `Click a symbol, town or name to pick it; Shift-drag across the map to pick several.${n ? ` ${n} ${n === 1 ? "change" : "changes"} so far.` : ""}`;
+}
+
+// ---- Dragging ----
+// A pointer on an item (in edit mode) drags it, with the rest of the picked items; a
+// Shift-drag on empty map (or any drag while "Select area" is on) draws a picking box;
+// anywhere else a drag pans the zoomed map; a second finger turns any of them into a pinch.
+let drag: { pointer: number; x: number; y: number; scale: number; items: { key: string; el: SVGGraphicsElement; base: string }[]; dx: number; dy: number } | null = null;
+let box: { pointer: number; x: number; y: number; add: boolean; el: HTMLElement } | null = null;
+let areaMode = false;
 
 function cancelDrag() {
   if (!drag) return;
-  drag.el.setAttribute("transform", drag.base);
-  if (!drag.base) drag.el.removeAttribute("transform");
+  for (const it of drag.items) {
+    if (it.base) it.el.setAttribute("transform", it.base);
+    else it.el.removeAttribute("transform");
+  }
   drag = null;
 }
 
+function cancelBox() {
+  box?.el.remove();
+  box = null;
+}
+
+els.selectArea.addEventListener("click", () => {
+  areaMode = !areaMode;
+  els.selectArea.setAttribute("aria-pressed", String(areaMode));
+  els.map.classList.toggle("area", areaMode);
+});
+
 els.map.addEventListener("pointerdown", (e) => {
   if (e.button !== 0) return;
-  if (zoom.pinching || (drag && drag.pointer !== e.pointerId)) {
+  lastPointer = { x: e.clientX, y: e.clientY };
+  if (zoom.pinching || (drag && drag.pointer !== e.pointerId) || (box && box.pointer !== e.pointerId)) {
     cancelDrag();
+    cancelBox();
     zoom.down(e);
     e.preventDefault();
     return;
@@ -394,6 +463,18 @@ els.map.addEventListener("pointerdown", (e) => {
     return;
   }
   const el = editing ? (e.target as Element).closest<SVGGraphicsElement>("[data-key]") : null;
+  const adding = e.shiftKey || e.ctrlKey || e.metaKey;
+  // Picking box: Shift-drag on empty map, or any drag in "Select area" mode.
+  if (editing && ((adding && !el) || areaMode)) {
+    zoom.track(e);
+    const div = document.createElement("div");
+    div.className = "pick-box";
+    els.mapBox.append(div);
+    box = { pointer: e.pointerId, x: e.clientX, y: e.clientY, add: adding, el: div };
+    capture(e);
+    e.preventDefault();
+    return;
+  }
   if (!el) {
     if (editing) select(null);
     if (zoom.down(e)) {
@@ -404,42 +485,80 @@ els.map.addEventListener("pointerdown", (e) => {
   }
   zoom.track(e);
   const key = el.dataset.key!;
-  select(key);
+  if (adding) {
+    togglePick(key);
+    e.preventDefault();
+    return;
+  }
+  if (!picked.includes(key)) select(key);
   const svg = els.map.querySelector("svg")!;
   // Screen pixels to map pixels: the zoomed view, and the frame's slight shrink inside it.
   const { width: W, height: H } = current!.settings;
   const scale = svg.viewBox.baseVal.width / svg.getBoundingClientRect().width / frameFor(W, H).scale;
-  drag = { pointer: e.pointerId, key, el, x: e.clientX, y: e.clientY, scale, base: el.getAttribute("transform") ?? "", dx: 0, dy: 0 };
-  try {
-    els.map.setPointerCapture(e.pointerId);
-  } catch {
-    // The pointer has already gone; the drag still ends on pointerup.
-  }
+  const items = picked.flatMap((k) => {
+    const it = itemEl(k);
+    return it ? [{ key: k, el: it, base: it.getAttribute("transform") ?? "" }] : [];
+  });
+  drag = { pointer: e.pointerId, x: e.clientX, y: e.clientY, scale, items, dx: 0, dy: 0 };
+  capture(e);
   e.preventDefault();
 });
 
+function capture(e: PointerEvent) {
+  try {
+    els.map.setPointerCapture(e.pointerId);
+  } catch {
+    // The pointer has already gone; the gesture still ends on pointerup.
+  }
+}
+
 els.map.addEventListener("pointermove", (e) => {
-  if (!drag && zoom.move(e)) return;
+  lastPointer = { x: e.clientX, y: e.clientY };
+  if (!drag && !box && zoom.move(e)) return;
+  if (box && box.pointer === e.pointerId) {
+    const r = els.mapBox.getBoundingClientRect();
+    const [x0, x1] = [Math.min(box.x, e.clientX), Math.max(box.x, e.clientX)];
+    const [y0, y1] = [Math.min(box.y, e.clientY), Math.max(box.y, e.clientY)];
+    Object.assign(box.el.style, { left: `${x0 - r.left}px`, top: `${y0 - r.top}px`, width: `${x1 - x0}px`, height: `${y1 - y0}px` });
+    return;
+  }
   if (!drag || drag.pointer !== e.pointerId) return;
   drag.dx = (e.clientX - drag.x) * drag.scale;
   drag.dy = (e.clientY - drag.y) * drag.scale;
-  drag.el.setAttribute("transform", `translate(${drag.dx.toFixed(1)} ${drag.dy.toFixed(1)}) ${drag.base}`.trim());
+  for (const it of drag.items) it.el.setAttribute("transform", `translate(${drag.dx.toFixed(1)} ${drag.dy.toFixed(1)}) ${it.base}`.trim());
 });
 
 const endDrag = (e: PointerEvent) => {
   zoom.up(e);
   if (!zoom.pinching) els.map.classList.remove("panning");
+  if (box && box.pointer === e.pointerId) {
+    const r = box.el.getBoundingClientRect();
+    cancelBox();
+    // Everything whose drawing overlaps the box is picked.
+    if (r.width > 3 || r.height > 3) {
+      const inside = [...els.map.querySelectorAll<SVGGraphicsElement>("[data-key]")]
+        .filter((el) => {
+          const b = el.getBoundingClientRect();
+          return b.width + b.height > 0 && b.left < r.right && b.right > r.left && b.top < r.bottom && b.bottom > r.top;
+        })
+        .map((el) => el.dataset.key!);
+      picked = [...new Set([...(e.shiftKey || e.ctrlKey || e.metaKey ? picked : []), ...inside])];
+      showSelection();
+    }
+    return;
+  }
   if (!drag || drag.pointer !== e.pointerId) return;
-  const { key, dx, dy, scale } = drag;
+  const { items, dx, dy, scale } = drag;
   drag = null;
   // Ignore the tiny wobble of a click.
-  if (Math.hypot(dx, dy) > 3 * scale) commit(move(edits, key, dx, dy));
+  if (Math.hypot(dx, dy) > 3 * scale) forPicked((ed, key) => move(ed, key, dx, dy), items.map((it) => it.key));
 };
 els.map.addEventListener("pointerup", endDrag);
 els.map.addEventListener("pointercancel", endDrag);
 
 els.map.addEventListener("dblclick", (e) => {
-  if (editing && selected?.startsWith("label:")) els.labelText.select();
+  const key = primary();
+  if (editing && picked.length === 1 && key?.startsWith("label:")) els.labelText.select();
   else if (!editing) zoom.zoomBy(2, zoom.toMap(e.clientX, e.clientY));
 });
 
@@ -457,42 +576,122 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "+" || e.key === "=") zoom.zoomBy(1.5);
   else if (e.key === "-" || e.key === "_") zoom.zoomBy(1 / 1.5);
   else if (e.key === "0") zoom.zoomBy(1 / MAX_ZOOM);
-  else if (pan[e.key] && e.target === els.map && zoom.level > 1.0001 && !(editing && selected)) zoom.pan(...pan[e.key]);
+  else if (pan[e.key] && e.target === els.map && zoom.level > 1.0001 && !(editing && picked.length)) zoom.pan(...pan[e.key]);
   else return;
   e.preventDefault();
 });
 
 // Keyboard: N and Shift+N step through the items, arrows nudge, S swaps, ] and [ layer
-// (Shift for all the way), Delete removes,
-// Escape lets go, and Ctrl+Z undoes.
+// (Shift for all the way), Delete removes, Escape lets go, Ctrl+Z undoes, and Ctrl+C,
+// Ctrl+X and Ctrl+V copy, cut and paste.
 document.addEventListener("keydown", (e) => {
   if (!editing) return;
   const typing = e.target instanceof Element && !!e.target.closest("input, select, textarea");
-  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z" && !typing) {
+  if (typing) return;
+  if (e.ctrlKey || e.metaKey) {
+    const k = e.key.toLowerCase();
+    if (k === "z") undo();
+    else if (k === "c") {
+      if (!copyPicked()) return; // nothing to copy: leave the browser's own copy alone
+    }
+    else if (k === "x") cutPicked();
+    else if (k === "v") pasteClipboard();
+    else if (k === "a") pickAllSymbols();
+    else return;
     e.preventDefault();
-    return undo();
+    return;
   }
-  if (typing || e.ctrlKey || e.metaKey || e.altKey) return;
+  if (e.altKey) return;
   const step = e.shiftKey ? 16 : 4;
   const nudge: Record<string, [number, number]> = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] };
   if (e.key.toLowerCase() === "n") {
     const keys = [...els.map.querySelectorAll<SVGElement>("[data-key]")].map((el) => el.dataset.key!);
     if (!keys.length) return;
-    const at = selected ? keys.indexOf(selected) : -1;
+    const at = primary() ? keys.indexOf(primary()!) : -1;
     select(keys[(at + (e.shiftKey ? -1 : 1) + keys.length) % keys.length]);
   } else if (e.key === "Escape") {
     if (placing) closePalette();
     else select(null);
-  }
-  else if (!selected) return;
-  else if (e.key === "Delete" || e.key === "Backspace") commit(remove(edits, selected));
+  } else if (!picked.length) return;
+  else if (e.key === "Delete" || e.key === "Backspace") deletePicked();
   else if (e.key.toLowerCase() === "s") swapSelected();
   else if (e.code === "BracketRight") layerSelected(e.shiftKey ? "front" : "forward");
   else if (e.code === "BracketLeft") layerSelected(e.shiftKey ? "back" : "backward");
-  else if (nudge[e.key]) commit(move(edits, selected, ...nudge[e.key]));
+  else if (nudge[e.key]) forPicked((ed, key) => move(ed, key, ...nudge[e.key]));
   else return;
   e.preventDefault();
 });
+
+// Ctrl+A in edit mode picks every symbol in view (not towns or names), to move or delete a
+// whole patch at once.
+function pickAllSymbols() {
+  const r = els.map.getBoundingClientRect();
+  picked = [...els.map.querySelectorAll<SVGGraphicsElement>("[data-key^='sym:'], [data-key^='add:']")]
+    .filter((el) => {
+      const b = el.getBoundingClientRect();
+      return b.left < r.right && b.right > r.left && b.top < r.bottom && b.bottom > r.top;
+    })
+    .map((el) => el.dataset.key!);
+  showSelection();
+}
+
+// ---- Copy and paste ----
+// Copies are kept on this page (not the system clipboard) as drawings placed relative to
+// their middle, so a group keeps its layout. They survive generating a new map, so a
+// favourite cluster can be carried to another map. Names are not copied.
+
+let clipboard: AddedSymbol[] = [];
+let lastPointer: { x: number; y: number } | null = null;
+
+els.copy.addEventListener("click", copyPicked);
+els.cut.addEventListener("click", cutPicked);
+els.paste.addEventListener("click", () => pasteClipboard(true));
+
+function copyPicked(): boolean {
+  if (!edited || !current) return false;
+  const map = { width: current.settings.width, symbols: edited.symbols, towns: edited.towns, labels: edited.labels, ink };
+  // Keep the drawing order: generated symbols, then added ones, as drawn.
+  const order = new Map(edited.symbols.map((s, i) => [s.key, i]));
+  const keys = [...picked].sort((a, b) => (order.get(a) ?? 1e9) - (order.get(b) ?? 1e9));
+  const items = keys.flatMap((key) => {
+    const d = asDrawing(map, key);
+    return d ? [d] : [];
+  });
+  if (!items.length) return false;
+  const cx = items.reduce((s, d) => s + d.x, 0) / items.length;
+  const cy = items.reduce((s, d) => s + d.y, 0) / items.length;
+  clipboard = items.map((d) => ({ ...d, x: d.x - cx, y: d.y - cy }));
+  els.paste.disabled = false;
+  els.editHint.textContent = `Copied ${items.length} ${items.length === 1 ? "item" : "items"}. Point at the map and press Ctrl+V (or Paste) to place a copy.`;
+  return true;
+}
+
+function cutPicked() {
+  if (copyPicked()) deletePicked();
+}
+
+// Paste centred on the pointer if it is over the map (else the middle of the view). The
+// copies become the picked items, ready to drag into place.
+function pasteClipboard(fromButton = false) {
+  if (!clipboard.length || !current) return;
+  const { width: W, height: H } = current.settings;
+  const fr = frameFor(W, H);
+  const r = els.map.getBoundingClientRect();
+  const over = !fromButton && lastPointer && lastPointer.x >= r.left && lastPointer.x <= r.right && lastPointer.y >= r.top && lastPointer.y <= r.bottom;
+  const p = over ? zoom.toMap(lastPointer!.x, lastPointer!.y) : { x: zoom.view.x + zoom.view.w / 2, y: zoom.view.y + zoom.view.h / 2 };
+  const cx = (p.x - fr.dx) / fr.scale;
+  const cy = (p.y - fr.dy) / fr.scale;
+  let next = edits;
+  const keys: string[] = [];
+  for (const d of clipboard) {
+    const added = addSymbol(next, { ...d, x: d.x + cx, y: d.y + cy });
+    next = added.edits;
+    keys.push(added.key);
+  }
+  commit(next);
+  picked = keys;
+  showSelection();
+}
 
 // ---- Export ----
 

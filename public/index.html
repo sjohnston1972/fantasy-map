@@ -92,6 +92,10 @@
           <button type="button" id="forward" class="plain" title="Bring in front of the symbol it overlaps (]); Shift-click for all the way">Bring forward</button>
           <button type="button" id="backward" class="plain" title="Send behind the symbol it overlaps ([); Shift-click for all the way">Send back</button>
           <button type="button" id="delete" class="plain" title="Remove (Delete)">Delete</button>
+          <button type="button" id="select-area" class="plain" aria-pressed="false" title="Drag across the map to pick everything in the box (or Shift-drag)">Select area</button>
+          <button type="button" id="copy" class="plain" title="Copy the picked items (Ctrl+C)">Copy</button>
+          <button type="button" id="cut" class="plain" title="Cut the picked items (Ctrl+X)">Cut</button>
+          <button type="button" id="paste" class="plain" title="Paste a copy (Ctrl+V pastes where the pointer is)" disabled>Paste</button>
           <button type="button" id="undo" class="plain" title="Undo (Ctrl+Z)">Undo</button>
           <form id="rename" class="rename" hidden>
             <label for="label-text">Wording</label>
@@ -109,7 +113,7 @@
             <div id="pal-grid" class="pal-grid" role="listbox" aria-label="Drawings"></div>
           </div>
           <p id="edit-hint" class="hint" aria-live="polite"></p>
-          <p class="hint keys">Keys: N picks the next item, arrows nudge, S swaps, ] and [ bring forward and send back, Delete removes, Ctrl+Z undoes. + and - zoom, 0 shows the whole map.</p>
+          <p class="hint keys">Keys: Shift-click picks more, Shift-drag picks an area, Ctrl+A picks all symbols in view, N picks the next item, arrows nudge, S swaps, ] and [ bring forward and send back, Delete removes, Ctrl+C / Ctrl+X / Ctrl+V copy, cut and paste, Ctrl+Z undoes. + and - zoom, 0 shows the whole map.</p>
         </div>
       </div>
       <div class="map-frame">

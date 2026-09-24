@@ -394,3 +394,37 @@ export function drawingOf(m: Pick<SvgInput, "symbols" | "towns" | "labels">, key
   }
   return null; // labels have no drawing
 }
+
+// An item on the map as a free-standing drawing (role, anchor, box, variant, facing), for
+// copy and paste. Sizes match what renderSvg draws for each kind; labels have no drawing.
+export function asDrawing(m: Pick<SvgInput, "width" | "symbols" | "towns" | "labels" | "ink">, key: string): { role: string; x: number; y: number; w: number; h: number; variant: number; flip: boolean } | null {
+  const d = drawingOf(m, key);
+  if (!d) return null;
+  const px = m.width / 1600;
+  const [kind, idText] = key.split(":");
+  const id = Number(idText);
+  if (kind === "sym" || kind === "add") {
+    const s = m.symbols.find((s, k) => (s.key ?? `sym:${k}`) === key)!;
+    return { role: s.role, x: s.x, y: s.y, w: s.w, h: s.h, variant: d.variant, flip: s.flip };
+  }
+  if (kind === "town") {
+    const p = m.towns!.places.find((p) => p.id === id)!;
+    const tw = (p.tier === "capital" ? 74 : p.tier === "town" ? 56 : 40) * px;
+    return { role: p.tier, x: p.x, y: p.y + tw * 0.12, w: tw, h: tw, variant: d.variant, flip: false };
+  }
+  if (kind === "landmark") {
+    const l = m.towns!.landmarks.find((l) => l.id === id)!;
+    return { role: "landmark", x: l.x, y: l.y, w: 30 * px, h: 30 * px, variant: d.variant, flip: false };
+  }
+  if (kind === "bridge") {
+    const b = m.towns!.bridges.find((b, k) => (b.index ?? k) === id)!;
+    const bw = 24 * px;
+    const icon = pickSymbol(m.ink, "bridge", d.variant);
+    return { role: "bridge", x: b.x, y: b.y + (icon ? (bw * icon.h) / icon.w / 2 : 0), w: bw, h: bw, variant: d.variant, flip: false };
+  }
+  if (kind === "emblem") {
+    const e = m.labels!.emblems.find((e, k) => (e.index ?? k) === id)!;
+    return { role: "emblem", x: e.x, y: e.y, w: e.w, h: e.w * 1.25, variant: d.variant, flip: false };
+  }
+  return null;
+}

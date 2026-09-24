@@ -102,3 +102,7 @@ input[type="range"] { width: 100%; accent-color: var(--ink); }
 .pal-item[aria-selected="true"] { border-color: var(--focus); box-shadow: 0 0 0 2px color-mix(in srgb, var(--focus) 35%, transparent); }
 .pal-item svg { display: block; width: 100%; height: 100%; }
 .map.editing.placing, .map.editing.placing [data-key] { cursor: copy; }
+
+/* Picking box for selecting several items. */
+.pick-box { position: absolute; border: 1.5px dashed var(--focus); background: color-mix(in srgb, var(--focus) 10%, transparent); pointer-events: none; }
+.map.editing.area { touch-action: none; cursor: crosshair; }
