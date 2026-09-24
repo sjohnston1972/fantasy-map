@@ -39,7 +39,7 @@ input[type="range"] { width: 100%; accent-color: var(--ink); }
 .stage { margin: 0; display: flex; flex-direction: column; align-items: center; gap: 8px; }
 /* The map box takes its shape from the map (set from script) and fits the window height. */
 .map-frame { display: flex; justify-content: center; width: 100%; height: calc(100vh - 150px); }
-.map-box { position: relative; height: 100%; max-width: 100%; background: #fff; box-shadow: 0 1px 6px rgba(0,0,0,0.15); }
+.map-box { position: relative; overflow: hidden; height: 100%; max-width: 100%; background: #fff; box-shadow: 0 1px 6px rgba(0,0,0,0.15); }
 .map, .map svg { display: block; width: 100%; height: 100%; }
 .relief { position: absolute; inset: 0; width: 100%; height: 100%; mix-blend-mode: multiply; opacity: 0.55; pointer-events: none; }
 @media (max-width: 760px) { .map-frame { height: auto; } .map-box { height: auto; width: 100%; } }
@@ -74,3 +74,28 @@ input[type="range"] { width: 100%; accent-color: var(--ink); }
 .top-nav { position: absolute; right: 0; top: 6px; display: flex; gap: 14px; }
 .top-nav a, .fine a, #keep-status a { color: var(--ink); font-weight: 600; }
 #keep-status { font-size: 0.8rem; color: var(--faint); }
+
+/* Zoom controls, over the map's top-right corner. */
+.zoom-ctl { position: absolute; top: 10px; right: 10px; display: flex; align-items: center; gap: 4px; padding: 4px; background: rgba(255, 253, 248, 0.92); border: 1px solid var(--rule); border-radius: 6px; box-shadow: 0 1px 3px rgba(0,0,0,0.12); }
+.zoom-ctl button { min-width: 32px; height: 32px; padding: 0 8px; font: inherit; font-size: 1.05rem; line-height: 1; color: var(--ink); background: var(--card); border: 1.5px solid var(--ink); border-radius: 4px; cursor: pointer; }
+.zoom-ctl button#zoom-fit { font-size: 0.8rem; }
+.zoom-ctl button:hover:not(:disabled) { background: #efe6d2; }
+.zoom-ctl button:disabled { opacity: 0.35; cursor: default; }
+.zoom-ctl output { min-width: 3.4em; text-align: center; font-size: 0.8rem; color: var(--faint); font-variant-numeric: tabular-nums; }
+/* Zoomed in, a drag moves around the map instead of scrolling the page. */
+.map.zoomed { touch-action: none; cursor: grab; }
+.map.zoomed.panning { cursor: grabbing; }
+
+/* Symbol palette for adding drawings to the map. */
+.palette { flex-basis: 100%; background: var(--card); border: 1px solid var(--rule); border-radius: 8px; padding: 10px; display: flex; flex-direction: column; gap: 8px; }
+.palette[hidden] { display: none; }
+.pal-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; font-size: 0.9rem; }
+.pal-head label { display: flex; align-items: center; gap: 6px; }
+.pal-head select { width: auto; }
+.pal-head output { min-width: 3em; color: var(--faint); }
+.pal-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(64px, 1fr)); gap: 6px; max-height: 220px; overflow-y: auto; }
+.pal-item { aspect-ratio: 1; padding: 6px; background: #fff; border: 1.5px solid var(--rule); border-radius: 5px; cursor: pointer; }
+.pal-item:hover { border-color: var(--ink); }
+.pal-item[aria-selected="true"] { border-color: var(--focus); box-shadow: 0 0 0 2px color-mix(in srgb, var(--focus) 35%, transparent); }
+.pal-item svg { display: block; width: 100%; height: 100%; }
+.map.editing.placing, .map.editing.placing [data-key] { cursor: copy; }

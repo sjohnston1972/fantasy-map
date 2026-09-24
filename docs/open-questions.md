@@ -261,3 +261,23 @@ can only be reopened by dropping its file again on the Import page.
   cut off at the inner rule. The generated map is unchanged, so links still match. The
   "map check" code under the map changed with the new drawing; the test that pins old
   links now checks the generated map data instead of the drawing.
+
+## Zoom, and adding symbols from the library
+
+- **Zoom** changes the SVG's viewBox, so ink stays sharp: + and - buttons on the map, the
+  mouse wheel or trackpad pinch, two-finger pinch on touch screens, double-click (outside
+  edit mode), and the + - 0 keys. Up to 8 times closer. Zoomed in, a drag pans (and on a
+  phone the page stops scrolling under the map until it is zoomed back out). The view is
+  kept while sliders change the same-sized map. Exports always cover the whole map.
+- **Adding symbols** (Steven: "add artifacts from the gallery", read as drawings from the
+  symbol library): edit mode has "Add symbols", a palette of every drawing by kind
+  (mountains, trees, towns, landmarks, banners and so on). Pick one, click the map to
+  place it, keep clicking to place more. "Vary each one" (on by default) picks a different
+  drawing of that kind, a size within 15% and a random facing each time. Added symbols go
+  in front of generated ones, travel in share links and gallery entries, and can be moved,
+  swapped, layered and deleted.
+  - Fields have no drawings in the library yet, so they are not offered.
+  - Added towns are just drawings: they get no name, roads or banner. Open question: should
+    placing a town also add a name label?
+  - A drawing is remembered by its position in its pack, so rebuilding a pack with new
+    icons can change which drawing an old link shows (the same is true of swaps).

@@ -8,6 +8,10 @@
 // a white outline behind it, so one drawn later hides the ink of any it overlaps. A symbol's
 // place in that order is its layer: its original position unless the visitor brought it
 // forward or sent it back, which is how a range of peaks or a forest edge is built up.
+//
+// Added symbols: any drawing from the symbol library can be placed on the map ("add:1",
+// "add:2", ...). They are kept in the edits like every other change, go in front of the
+// generated symbols, and can then be moved, swapped, layered or deleted the same way.
 
 import type { Label, Labelling } from "./labels";
 import { boxesOverlap, symBox, textWidth } from "./labels";
@@ -15,15 +19,33 @@ import type { GeneratedMap } from "./pipeline";
 import type { Settlements } from "./settlements";
 import type { PlacedSymbol } from "./symbols";
 
+export interface AddedSymbol {
+  role: string; // any symbol pack: mountain, conifer, town, landmark, ...
+  x: number; // anchor (middle of the base), map pixels
+  y: number;
+  w: number;
+  h: number;
+  variant: number; // which drawing of the role, 0 to 1
+  flip: boolean;
+}
+
 export interface Edits {
   moved: Record<string, [number, number]>; // key -> offset in map pixels
   deleted: string[];
   variant: Record<string, number>; // key -> which drawing (0 to 1)
   text: Record<string, string>; // label key -> new wording
   z: Record<string, number>; // symbol key -> layer (higher is in front); default is its number
+  added: Record<string, AddedSymbol>; // "add:N" -> a symbol placed by the visitor
 }
 
-export const NO_EDITS: Edits = { moved: {}, deleted: [], variant: {}, text: {}, z: {} };
+export const NO_EDITS: Edits = { moved: {}, deleted: [], variant: {}, text: {}, z: {}, added: {} };
+
+// Keys of items drawn as symbols (generated or added): these can be layered.
+export const isSymbolKey = (key: string | null | undefined): key is string => !!key && /^(sym|add):\d+$/.test(key);
+
+// Generated symbols keep their order; added ones go in front, in the order they were added.
+const ADDED_Z = 1e6;
+const defaultZ = (key: string) => (key.startsWith("add:") ? ADDED_Z : 0) + Number(key.slice(4));
 
 export type EditedMap = Pick<GeneratedMap, "settings" | "water"> & {
   symbols: PlacedSymbol[];
@@ -44,6 +66,11 @@ export function applyEdits(m: GeneratedMap, e: Edits): EditedMap {
     const [dx, dy] = shift(key);
     layered.push({ s: { ...s, x: s.x + dx, y: s.y + dy, variant: e.variant[key] ?? s.variant, key }, z: e.z?.[key] ?? k });
   });
+  for (const [key, a] of Object.entries(e.added ?? {})) {
+    if (gone.has(key)) continue;
+    const [dx, dy] = shift(key);
+    layered.push({ s: { ...a, role: a.role as PlacedSymbol["role"], x: a.x + dx, y: a.y + dy, variant: e.variant[key] ?? a.variant, key }, z: e.z?.[key] ?? defaultZ(key) });
+  }
   // Sort is stable, so symbols without a layer change keep the generator's order.
   const symbols = layered.sort((a, b) => a.z - b.z).map((l) => l.s);
 
@@ -127,7 +154,16 @@ export function rename(e: Edits, key: string, text: string): Edits {
 }
 
 export function editCount(e: Edits): number {
-  return Object.keys(e.moved).length + e.deleted.length + Object.keys(e.variant).length + Object.keys(e.text).length + Object.keys(e.z ?? {}).length;
+  return Object.keys(e.moved).length + e.deleted.length + Object.keys(e.variant).length + Object.keys(e.text).length + Object.keys(e.z ?? {}).length + Object.keys(e.added ?? {}).length;
+}
+
+// Place a new symbol. Values are rounded so they survive a share link exactly.
+export function addSymbol(e: Edits, a: AddedSymbol): { edits: Edits; key: string } {
+  const n = Math.max(0, ...Object.keys(e.added ?? {}).map((k) => Number(k.slice(4)))) + 1;
+  const key = `add:${n}`;
+  const r = (v: number, k = 10) => Math.round(v * k) / k;
+  const clean: AddedSymbol = { role: a.role, x: r(a.x), y: r(a.y), w: r(a.w), h: r(a.h), variant: r(a.variant, 1e4), flip: a.flip };
+  return { edits: { ...e, added: { ...e.added, [key]: clean } }, key };
 }
 
 export type LayerMove = "forward" | "backward" | "front" | "back";
@@ -138,7 +174,7 @@ export function layer(m: GeneratedMap, e: Edits, key: string, how: LayerMove): E
   const order = applyEdits(m, e).symbols;
   const zOf = (s: PlacedSymbol) => {
     const k = keyOf(s);
-    return e.z?.[k] ?? Number(k.slice(4));
+    return e.z?.[k] ?? defaultZ(k);
   };
   const i = order.findIndex((s) => keyOf(s) === key);
   if (i < 0) return e;

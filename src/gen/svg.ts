@@ -302,6 +302,9 @@ function placeholder(s: PlacedSymbol, k: number, key: string): string {
       return g(`<path d="M${n(x - w / 2)} ${n(y)}L${n(x - w * 0.35)} ${n(y - h)}H${n(x + w * 0.45)}L${n(x + w / 2)} ${n(y)}Z" fill="#fff" stroke-width="0.6"/><path d="M${n(x - w * 0.25)} ${n(y - h * 0.15)}L${n(x - w * 0.15)} ${n(y - h * 0.85)}M${n(x)} ${n(y - h * 0.15)}L${n(x + w * 0.05)} ${n(y - h * 0.85)}M${n(x + w * 0.25)} ${n(y - h * 0.15)}L${n(x + w * 0.25)} ${n(y - h * 0.85)}" fill="none" stroke-width="0.4"/>`);
     case "snow":
       return g(`<path d="M${n(x - w / 2)} ${n(y)}H${n(x - w * 0.1)}M${n(x + w * 0.05)} ${n(y - h * 0.5)}H${n(x + w / 2)}" fill="none" stroke-width="0.7"/>`);
+    default:
+      // Any other kind (an added town, banner or landmark before its drawings load): a ringed dot.
+      return g(`<circle cx="${n(x)}" cy="${n(y - h / 2)}" r="${n(Math.min(w, h) / 3)}" fill="#fff" stroke-width="1"/><circle cx="${n(x)}" cy="${n(y - h / 2)}" r="${n(Math.min(w, h) / 8)}" fill="#1a1714" stroke="none"/>`);
   }
 }
 
@@ -369,7 +372,7 @@ function ribbon(pts: Pt[], widths: number[]): string {
 export function drawingOf(m: Pick<SvgInput, "symbols" | "towns" | "labels">, key: string): { role: string; variant: number } | null {
   const [kind, idText] = key.split(":");
   const id = Number(idText);
-  if (kind === "sym") {
+  if (kind === "sym" || kind === "add") {
     const s = m.symbols.find((s, k) => (s.key ?? `sym:${k}`) === key);
     return s ? { role: s.role, variant: s.variant } : null;
   }

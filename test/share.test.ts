@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { decodeEdits, decodeSettings, encodeEdits, encodeSettings, fingerprint } from "../src/app/share";
-import { applyEdits, layer, move, NO_EDITS, remove, rename, swap } from "../src/gen/edits";
+import { addSymbol, applyEdits, layer, move, NO_EDITS, remove, rename, swap } from "../src/gen/edits";
 import { generate } from "../src/gen/pipeline";
 import { cleanSettings, DEFAULT_SETTINGS, type MapSettings } from "../src/gen/settings";
 import { renderSvg } from "../src/gen/svg";
@@ -75,6 +75,9 @@ describe("edits in share links", () => {
     e = swap(e, "sym:7", 0.1, 3);
     e = rename(e, "label:4", "Dragon's Rest & Co <b>");
     e = layer(map, e, "sym:3", "front");
+    e = addSymbol(e, { role: "conifer", x: 812.34, y: 1003.21, w: 13.37, h: 21.9, variant: 0.3125, flip: true }).edits;
+    e = move(e, "add:1", 3, 4);
+    e = layer(map, e, "add:1", "back");
     const code = await encodeEdits(e);
     expect(code).toMatch(/^[A-Za-z0-9_-]+$/);
     expect(await decodeEdits(code)).toEqual(e);
@@ -99,6 +102,12 @@ describe("edits in share links", () => {
     expect(await decodeEdits(Buffer.from(packed).toString("base64url"))).toBeNull();
   });
 
+  it("checks added symbols read from a link", async () => {
+    const raw = JSON.stringify({ a: { a1: ["mountain", 10, 20, 9999, 30, 0.5, 1], a2: ["<script>", 1, 1, 10, 10, 0.5, 0], a3: ["hill", "x", 1, 10, 10, 0.5, 0], s4: ["hill", 1, 1, 10, 10, 0.5, 0] } });
+    const packed = new Uint8Array(await new Response(new Blob([raw]).stream().pipeThrough(new CompressionStream("deflate-raw"))).arrayBuffer());
+    expect((await decodeEdits(Buffer.from(packed).toString("base64url")))?.added).toEqual({ "add:1": { role: "mountain", x: 10, y: 20, w: 600, h: 30, variant: 0.5, flip: true } });
+  });
+
   it("drops unknown keys and clamps odd values", async () => {
     const raw = JSON.stringify({ m: { s1: [1e12, 2], x9: [1, 1], s2: "no" }, d: ["t1", "zz", 5], v: { s3: 7 }, t: { s4: "not a label", l2: "Ok" }, z: { l3: 1 } });
     const packed = new Uint8Array(await new Response(new Blob([raw]).stream().pipeThrough(new CompressionStream("deflate-raw"))).arrayBuffer());
@@ -108,6 +117,7 @@ describe("edits in share links", () => {
       variant: { "sym:3": 0.999999 },
       text: { "label:2": "Ok" },
       z: {},
+      added: {},
     });
   });
 });

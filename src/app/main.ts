@@ -5,9 +5,10 @@ import { generate, type GeneratedMap } from "../gen/pipeline";
 import { renderRelief } from "../gen/render";
 import { toInkSet, type InkSet, type InkSymbol } from "../gen/inkset";
 import { drawingOf, frameFor, renderSvg } from "../gen/svg";
-import { applyEdits, editCount, layer, move, NO_EDITS, remove, rename, swap, type EditedMap, type Edits, type LayerMove } from "../gen/edits";
+import { addSymbol, applyEdits, editCount, isSymbolKey, layer, move, NO_EDITS, remove, rename, swap, type EditedMap, type Edits, type LayerMove } from "../gen/edits";
 import { embeddedFontCss, pngSize, saveBlob, svgToPng, svgToThumb, toBase64 } from "./export";
 import { saveMyMap } from "./mymaps";
+import { MapZoom, MAX_ZOOM, type View } from "./zoom";
 import { decodeEdits, decodeSettings, encodeEdits, encodeSettings, fingerprint } from "./share";
 import { randomSeed } from "../gen/rng";
 import { cleanSettings, DEFAULT_SETTINGS, type MapSettings } from "../gen/settings";
@@ -57,7 +58,24 @@ const els = {
   exportPng: $<HTMLButtonElement>("#export-png"),
   exportA3: $<HTMLButtonElement>("#export-a3"),
   exportStatus: $<HTMLOutputElement>("#export-status"),
+  zoomIn: $<HTMLButtonElement>("#zoom-in"),
+  zoomOut: $<HTMLButtonElement>("#zoom-out"),
+  zoomFit: $<HTMLButtonElement>("#zoom-fit"),
+  zoomLevel: $<HTMLOutputElement>("#zoom-level"),
+  addOpen: $<HTMLButtonElement>("#add-open"),
+  palette: $<HTMLElement>("#palette"),
+  palRole: $<HTMLSelectElement>("#pal-role"),
+  palSize: $<HTMLInputElement>("#pal-size"),
+  palSizeOut: $<HTMLOutputElement>("#pal-size-out"),
+  palVary: $<HTMLInputElement>("#pal-vary"),
+  palGrid: $<HTMLElement>("#pal-grid"),
+  palHint: $<HTMLElement>("#pal-hint"),
+  palDone: $<HTMLButtonElement>("#pal-done"),
 };
+
+// Zoom and pan (src/app/zoom.ts). The view survives redraws of the same map size, so a
+// slider can be tried on the part of the map being looked at.
+const zoom = new MapZoom(els.map, applyView);
 
 // A share link (?map=code) opens the map it names; otherwise the page starts on a new seed.
 const params = new URLSearchParams(location.search);
@@ -150,6 +168,7 @@ function draw() {
     queued = false;
     const t0 = performance.now();
     const map = generate(settings);
+    if (!current || current.settings.width !== map.settings.width || current.settings.height !== map.settings.height) zoom.reset(map.settings.width, map.settings.height);
     // A new map starts with no edits; they belong to the map they were made on.
     edits = linkEdits ?? NO_EDITS;
     linkEdits = null;
@@ -194,7 +213,34 @@ function paint(map: GeneratedMap) {
   svg.setAttribute("role", "img");
   svg.setAttribute("aria-label", `Map for seed ${map.settings.seed}: coast, rivers, lakes, mountains, hills and forests in black ink.`);
   paintRelief(map);
+  applyView(zoom.view);
   showSelection();
+}
+
+// Show the zoomed view: the SVG's window onto the map, the relief lined up with it, and the
+// zoom controls' state.
+function applyView(v: View) {
+  els.map.querySelector("svg")?.setAttribute("viewBox", `${v.x.toFixed(2)} ${v.y.toFixed(2)} ${v.w.toFixed(2)} ${v.h.toFixed(2)}`);
+  positionRelief();
+  const level = zoom.level;
+  els.zoomLevel.value = `${Math.round(level * 100)}%`;
+  els.zoomIn.disabled = level >= MAX_ZOOM - 0.001;
+  els.zoomOut.disabled = els.zoomFit.disabled = level <= 1.0001;
+  els.map.classList.toggle("zoomed", level > 1.0001);
+}
+
+// Line the relief up with the drawing inside the frame, at the current zoom.
+function positionRelief() {
+  if (els.relief.hidden || !current) return;
+  const { width: W, height: H } = current.settings;
+  const fr = frameFor(W, H);
+  const v = zoom.view;
+  Object.assign(els.relief.style, {
+    left: `${((fr.dx - v.x) / v.w) * 100}%`,
+    top: `${((fr.dy - v.y) / v.h) * 100}%`,
+    width: `${((W * fr.scale) / v.w) * 100}%`,
+    height: `${((H * fr.scale) / v.h) * 100}%`,
+  });
 }
 
 // Optional shaded relief laid over the ink drawing, to check the terrain underneath.
@@ -205,10 +251,7 @@ function paintRelief(map: GeneratedMap) {
   els.relief.width = cols;
   els.relief.height = rows;
   els.relief.getContext("2d")!.putImageData(new ImageData(renderRelief(map.height, map.landSea, map.water), cols, rows), 0, 0);
-  // Line the relief up with the drawing inside the frame.
-  const { width: W, height: H } = map.settings;
-  const fr = frameFor(W, H);
-  Object.assign(els.relief.style, { left: `${(fr.dx / W) * 100}%`, top: `${(fr.dy / H) * 100}%`, width: `${fr.scale * 100}%`, height: `${fr.scale * 100}%` });
+  positionRelief();
 }
 
 // ---- Light editing ----
@@ -221,7 +264,10 @@ els.editMode.addEventListener("click", () => {
   els.editMode.textContent = editing ? "Finish editing" : "Edit the map";
   els.editTools.hidden = !editing;
   els.map.classList.toggle("editing", editing);
-  if (!editing) select(null);
+  if (!editing) {
+    select(null);
+    closePalette();
+  }
   else els.map.focus();
 });
 
@@ -248,7 +294,7 @@ els.swap.addEventListener("click", swapSelected);
 els.forward.addEventListener("click", (e) => layerSelected(e.shiftKey ? "front" : "forward"));
 els.backward.addEventListener("click", (e) => layerSelected(e.shiftKey ? "back" : "backward"));
 function layerSelected(how: LayerMove) {
-  if (!selected?.startsWith("sym:") || !current) return;
+  if (!isSymbolKey(selected) || !current) return;
   const next = layer(current, edits, selected, how);
   if (next === edits) {
     els.editHint.textContent = how === "forward" || how === "front" ? "Already in front of everything it touches." : "Already behind everything it touches.";
@@ -286,7 +332,7 @@ function showSelection() {
   const isLabel = !!selected?.startsWith("label:");
   const d = selected && edited ? drawingOf(edited, selected) : null;
   els.del.disabled = !selected;
-  els.forward.disabled = els.backward.disabled = !selected?.startsWith("sym:");
+  els.forward.disabled = els.backward.disabled = !isSymbolKey(selected);
   els.swap.disabled = !d || (ink?.[d.role]?.length ?? 0) < 2;
   els.undo.disabled = undoStack.length === 0;
   els.rename.hidden = !isLabel;
@@ -295,25 +341,55 @@ function showSelection() {
   els.editHint.textContent = selected
     ? isLabel
       ? "Drag to move, change the wording below, or press Delete."
-      : selected.startsWith("sym:")
+      : isSymbolKey(selected)
         ? "Drag to move, S swaps the drawing, ] brings it in front of what it overlaps and [ sends it behind (Shift for all the way), Delete removes it."
         : "Drag to move, press S to swap the drawing, or Delete to remove it."
     : `Click a symbol, town or name to pick it.${n ? ` ${n} ${n === 1 ? "change" : "changes"} so far.` : ""}`;
 }
 
 // Drag to move. The item follows the pointer as a preview; the move is recorded on release.
-let drag: { key: string; el: SVGGraphicsElement; x: number; y: number; scale: number; base: string; dx: number; dy: number } | null = null;
+// A pointer on an item (in edit mode) drags it; anywhere else it pans the zoomed map; a
+// second finger turns either into a pinch.
+let drag: { pointer: number; key: string; el: SVGGraphicsElement; x: number; y: number; scale: number; base: string; dx: number; dy: number } | null = null;
+
+function cancelDrag() {
+  if (!drag) return;
+  drag.el.setAttribute("transform", drag.base);
+  if (!drag.base) drag.el.removeAttribute("transform");
+  drag = null;
+}
 
 els.map.addEventListener("pointerdown", (e) => {
-  if (!editing || e.button !== 0) return;
-  const el = (e.target as Element).closest<SVGGraphicsElement>("[data-key]");
-  if (!el) return select(null);
+  if (e.button !== 0) return;
+  if (zoom.pinching || (drag && drag.pointer !== e.pointerId)) {
+    cancelDrag();
+    zoom.down(e);
+    e.preventDefault();
+    return;
+  }
+  if (editing && placing) {
+    zoom.track(e);
+    placeAt(e.clientX, e.clientY);
+    e.preventDefault();
+    return;
+  }
+  const el = editing ? (e.target as Element).closest<SVGGraphicsElement>("[data-key]") : null;
+  if (!el) {
+    if (editing) select(null);
+    if (zoom.down(e)) {
+      els.map.classList.add("panning");
+      e.preventDefault();
+    }
+    return;
+  }
+  zoom.track(e);
   const key = el.dataset.key!;
   select(key);
   const svg = els.map.querySelector("svg")!;
-  // Screen pixels to map pixels: the page scale, and the frame's slight shrink inside it.
-  const scale = svg.viewBox.baseVal.width / svg.getBoundingClientRect().width / frameFor(svg.viewBox.baseVal.width, svg.viewBox.baseVal.height).scale;
-  drag = { key, el, x: e.clientX, y: e.clientY, scale, base: el.getAttribute("transform") ?? "", dx: 0, dy: 0 };
+  // Screen pixels to map pixels: the zoomed view, and the frame's slight shrink inside it.
+  const { width: W, height: H } = current!.settings;
+  const scale = svg.viewBox.baseVal.width / svg.getBoundingClientRect().width / frameFor(W, H).scale;
+  drag = { pointer: e.pointerId, key, el, x: e.clientX, y: e.clientY, scale, base: el.getAttribute("transform") ?? "", dx: 0, dy: 0 };
   try {
     els.map.setPointerCapture(e.pointerId);
   } catch {
@@ -323,14 +399,17 @@ els.map.addEventListener("pointerdown", (e) => {
 });
 
 els.map.addEventListener("pointermove", (e) => {
-  if (!drag) return;
+  if (!drag && zoom.move(e)) return;
+  if (!drag || drag.pointer !== e.pointerId) return;
   drag.dx = (e.clientX - drag.x) * drag.scale;
   drag.dy = (e.clientY - drag.y) * drag.scale;
   drag.el.setAttribute("transform", `translate(${drag.dx.toFixed(1)} ${drag.dy.toFixed(1)}) ${drag.base}`.trim());
 });
 
-const endDrag = () => {
-  if (!drag) return;
+const endDrag = (e: PointerEvent) => {
+  zoom.up(e);
+  if (!zoom.pinching) els.map.classList.remove("panning");
+  if (!drag || drag.pointer !== e.pointerId) return;
   const { key, dx, dy, scale } = drag;
   drag = null;
   // Ignore the tiny wobble of a click.
@@ -339,8 +418,28 @@ const endDrag = () => {
 els.map.addEventListener("pointerup", endDrag);
 els.map.addEventListener("pointercancel", endDrag);
 
-els.map.addEventListener("dblclick", () => {
+els.map.addEventListener("dblclick", (e) => {
   if (editing && selected?.startsWith("label:")) els.labelText.select();
+  else if (!editing) zoom.zoomBy(2, zoom.toMap(e.clientX, e.clientY));
+});
+
+els.map.addEventListener("wheel", (e) => zoom.wheel(e), { passive: false });
+els.zoomIn.addEventListener("click", () => zoom.zoomBy(1.5));
+els.zoomOut.addEventListener("click", () => zoom.zoomBy(1 / 1.5));
+els.zoomFit.addEventListener("click", () => zoom.zoomBy(1 / MAX_ZOOM));
+
+// Zoom keys work anywhere on the page except in text boxes: + and - zoom, 0 shows the whole
+// map. Arrow keys look around a zoomed map when it has focus and nothing is picked.
+document.addEventListener("keydown", (e) => {
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  if (e.target instanceof Element && e.target.closest("input, select, textarea")) return;
+  const pan: Record<string, [number, number]> = { ArrowLeft: [-60, 0], ArrowRight: [60, 0], ArrowUp: [0, -60], ArrowDown: [0, 60] };
+  if (e.key === "+" || e.key === "=") zoom.zoomBy(1.5);
+  else if (e.key === "-" || e.key === "_") zoom.zoomBy(1 / 1.5);
+  else if (e.key === "0") zoom.zoomBy(1 / MAX_ZOOM);
+  else if (pan[e.key] && e.target === els.map && zoom.level > 1.0001 && !(editing && selected)) zoom.pan(...pan[e.key]);
+  else return;
+  e.preventDefault();
 });
 
 // Keyboard: N and Shift+N step through the items, arrows nudge, S swaps, ] and [ layer
@@ -361,7 +460,10 @@ document.addEventListener("keydown", (e) => {
     if (!keys.length) return;
     const at = selected ? keys.indexOf(selected) : -1;
     select(keys[(at + (e.shiftKey ? -1 : 1) + keys.length) % keys.length]);
-  } else if (e.key === "Escape") select(null);
+  } else if (e.key === "Escape") {
+    if (placing) closePalette();
+    else select(null);
+  }
   else if (!selected) return;
   else if (e.key === "Delete" || e.key === "Backspace") commit(remove(edits, selected));
   else if (e.key.toLowerCase() === "s") swapSelected();
@@ -496,4 +598,113 @@ function showKept(text: string, href: string, linkText: string) {
   a.href = href;
   a.textContent = linkText;
   els.keepStatus.replaceChildren(text, a);
+}
+
+// ---- Adding symbols from the library ----
+// The palette lists every drawing in the symbol packs, by kind. Pick one, then click the
+// map to place it; each click places another, so a forest or a range builds up quickly.
+// "Vary each one" picks a different drawing of the same kind, a slightly different size and
+// a random facing for every click, as a hand-inked map would have.
+
+// Kinds in the order a mapmaker reaches for them, and their usual width in map pixels on a
+// 1600-pixel-wide map (the generator's sizes, see src/gen/symbols.ts and svg.ts).
+const ADD_KINDS: [string, string, number][] = [
+  ["mountain", "Mountains", 80],
+  ["hill", "Hills", 40],
+  ["conifer", "Pine trees", 13],
+  ["broadleaf", "Leafy trees", 15],
+  ["field", "Fields", 17],
+  ["reeds", "Reeds", 12],
+  ["grass", "Grass", 9],
+  ["dune", "Dunes", 33],
+  ["cactus", "Cactus", 8],
+  ["snow", "Snow", 15],
+  ["village", "Villages", 40],
+  ["town", "Towns", 56],
+  ["capital", "Cities", 74],
+  ["landmark", "Landmarks", 30],
+  ["bridge", "Bridges", 24],
+  ["emblem", "Banners", 30],
+];
+
+let placing: { role: string; index: number } | null = null;
+
+els.addOpen.addEventListener("click", () => (els.palette.hidden ? openPalette() : closePalette()));
+els.palDone.addEventListener("click", closePalette);
+els.palRole.addEventListener("change", () => {
+  placing = null;
+  fillGrid();
+});
+els.palSize.addEventListener("input", () => (els.palSizeOut.value = `${els.palSize.value}%`));
+
+function openPalette() {
+  if (!ink) {
+    els.editHint.textContent = "The symbol drawings are still loading; try again in a moment.";
+    return;
+  }
+  els.palette.hidden = false;
+  els.addOpen.setAttribute("aria-expanded", "true");
+  const kinds = ADD_KINDS.filter(([role]) => ink?.[role]?.length);
+  if (!els.palRole.options.length) {
+    els.palRole.replaceChildren(...kinds.map(([role, label]) => new Option(`${label} (${ink![role].length})`, role)));
+  }
+  fillGrid();
+  els.palRole.focus();
+}
+
+function closePalette() {
+  placing = null;
+  els.palette.hidden = true;
+  els.addOpen.setAttribute("aria-expanded", "false");
+  els.map.classList.remove("placing");
+}
+
+// One button per drawing of the chosen kind, showing the drawing itself.
+function fillGrid() {
+  const role = els.palRole.value;
+  const list = ink?.[role] ?? [];
+  els.palGrid.replaceChildren(
+    ...list.map((icon, index) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "pal-item";
+      b.setAttribute("role", "option");
+      b.setAttribute("aria-selected", "false");
+      b.setAttribute("aria-label", `${role} drawing ${index + 1}`);
+      // Pack drawings come from this site's own symbol library.
+      b.innerHTML = `<svg viewBox="${icon.viewBox}" aria-hidden="true" color="#1a1714">${icon.body}</svg>`;
+      b.addEventListener("click", () => choose(role, index));
+      return b;
+    }),
+  );
+  els.palHint.textContent = "Pick a drawing, then click the map to place it. Keep clicking to place more; press Done or Escape to stop.";
+}
+
+function choose(role: string, index: number) {
+  placing = placing?.role === role && placing.index === index ? null : { role, index };
+  for (const [i, b] of [...els.palGrid.children].entries()) b.setAttribute("aria-selected", String(!!placing && i === index));
+  els.map.classList.toggle("placing", !!placing);
+  if (placing) els.palHint.textContent = "Now click the map where it should stand. Each click places another.";
+}
+
+// Place the chosen drawing with its base centred a little below the pointer, so it looks
+// centred on the click.
+function placeAt(clientX: number, clientY: number) {
+  if (!placing || !current || !ink) return;
+  const list = ink[placing.role];
+  if (!list?.length) return;
+  const vary = els.palVary.checked;
+  const index = vary ? Math.floor(Math.random() * list.length) : placing.index;
+  const icon = list[index];
+  const { width: W, height: H } = current.settings;
+  const fr = frameFor(W, H);
+  const p = zoom.toMap(clientX, clientY); // page pixels
+  const mx = (p.x - fr.dx) / fr.scale; // map pixels
+  const my = (p.y - fr.dy) / fr.scale;
+  const base = ADD_KINDS.find(([r]) => r === placing!.role)?.[2] ?? 30;
+  const w = base * (W / 1600) * (Number(els.palSize.value) / 100) * (vary ? 0.85 + Math.random() * 0.3 : 1);
+  const h = (w * icon.h) / icon.w;
+  const { edits: next, key } = addSymbol(edits, { role: placing.role, x: mx, y: my + h / 2, w, h, variant: (index + 0.5) / list.length, flip: vary ? Math.random() < 0.5 : false });
+  commit(next);
+  select(key);
 }

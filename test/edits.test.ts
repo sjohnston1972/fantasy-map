@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { pngSize, toBase64 } from "../src/app/export";
-import { applyEdits, editCount, layer, move, NO_EDITS, remove, rename, swap, type EditedMap } from "../src/gen/edits";
+import { addSymbol, applyEdits, editCount, isSymbolKey, layer, move, NO_EDITS, remove, rename, swap, type EditedMap } from "../src/gen/edits";
 import { boxesOverlap, symBox } from "../src/gen/labels";
 import { toInkSet } from "../src/gen/inkset";
 import { generate } from "../src/gen/pipeline";
@@ -88,7 +88,7 @@ describe("light editing (spec: move, delete or swap a symbol; rename, move or de
     const b = remove(a, "sym:2");
     expect(a.deleted).toEqual([]);
     expect(editCount(b)).toBe(2);
-    expect(NO_EDITS).toEqual({ moved: {}, deleted: [], variant: {}, text: {}, z: {} });
+    expect(NO_EDITS).toEqual({ moved: {}, deleted: [], variant: {}, text: {}, z: {}, added: {} });
   });
 
   it("reuses the drawn ground between edits", () => {
@@ -144,6 +144,54 @@ describe("layering (bring forward, send back)", () => {
   it("does nothing when there is nothing to pass", () => {
     const e = layer(map, NO_EDITS, a, "front");
     expect(layer(map, e, a, "front")).toBe(e);
+  });
+});
+
+describe("adding symbols from the library", () => {
+  const mountain = { role: "mountain", x: 700, y: 900, w: 80, h: 60, variant: 0.5, flip: false };
+
+  it("places a new symbol in front of the generated ones", () => {
+    const { edits: e, key } = addSymbol(NO_EDITS, mountain);
+    expect(key).toBe("add:1");
+    expect(isSymbolKey(key)).toBe(true);
+    const m = applyEdits(map, e);
+    expect(m.symbols.length).toBe(map.symbols.length + 1);
+    expect(m.symbols[m.symbols.length - 1]).toMatchObject({ key, x: 700, y: 900, role: "mountain" });
+    const svg = svgOf(m);
+    expect(item(svg, key)).toContain('data-role="mountain"');
+    expect(svg.indexOf(`data-key="${key}"`)).toBeGreaterThan(svg.lastIndexOf('data-key="sym:'));
+  });
+
+  it("numbers each new symbol, and later ones go in front", () => {
+    let e = addSymbol(NO_EDITS, mountain).edits;
+    const second = addSymbol(e, { ...mountain, x: 720 });
+    expect(second.key).toBe("add:2");
+    e = second.edits;
+    const keys = applyEdits(map, e).symbols.map((s) => s.key);
+    expect(keys.indexOf("add:2")).toBeGreaterThan(keys.indexOf("add:1"));
+  });
+
+  it("can be moved, swapped, layered and deleted like any symbol", () => {
+    let e = addSymbol(NO_EDITS, mountain).edits;
+    e = addSymbol(e, { ...mountain, x: 710 }).edits; // overlaps add:1, in front of it
+    e = move(e, "add:1", 5, 5);
+    expect(applyEdits(map, e).symbols.find((s) => s.key === "add:1")).toMatchObject({ x: 705, y: 905 });
+    const d = drawingOf(applyEdits(map, e), "add:1")!;
+    expect(d.role).toBe("mountain");
+    e = swap(e, "add:1", d.variant, 3);
+    expect(drawingOf(applyEdits(map, e), "add:1")!.variant).not.toBe(d.variant);
+    e = layer(map, e, "add:1", "forward");
+    const keys = applyEdits(map, e).symbols.map((s) => s.key);
+    expect(keys.indexOf("add:1")).toBeGreaterThan(keys.indexOf("add:2"));
+    e = remove(e, "add:2");
+    expect(applyEdits(map, e).symbols.some((s) => s.key === "add:2")).toBe(false);
+  });
+
+  it("draws any kind, even before its drawings load", () => {
+    const e = addSymbol(NO_EDITS, { ...mountain, role: "capital" }).edits;
+    const svg = renderSvg({ width: map.settings.width, height: map.settings.height, water: map.water, symbols: applyEdits(map, e).symbols });
+    expect(svg).not.toContain("undefined");
+    expect(item(svg, "add:1")).toContain("<circle");
   });
 });
 
