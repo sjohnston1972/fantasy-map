@@ -18,8 +18,8 @@ test.afterEach(async ({ page }) => {
 
 async function open(page: Page, link = LINK) {
   await page.goto(link);
-  // Drawn, and redrawn with the symbol packs.
-  await page.waitForFunction(() => document.querySelectorAll("#map use").length > 100);
+  // Drawn, redrawn with the symbol packs, and then with their pre-drawn pictures.
+  await page.waitForFunction(() => document.querySelectorAll("#map image").length > 100);
 }
 
 async function editMode(page: Page) {
@@ -85,6 +85,15 @@ test.describe("everywhere", () => {
     await expect(page.locator("#caption")).toContainText("Map check z0m9d9");
     await open(page, "/?map=1.acm9.p.35.50.60.5");
     await expect(page.locator("#caption")).toContainText("Map check u2ezz3");
+  });
+
+  test("keeps the map its own shape whatever the hint says", async ({ page }) => {
+    await open(page);
+    await page.locator("#edit-mode").click();
+    const shape = async () => { const b = (await page.locator("#map").boundingBox())!; return b.width / b.height; };
+    const before = await shape();
+    await page.locator("#edit-hint").evaluate((el) => (el.textContent = "A very long hint ".repeat(20)));
+    expect(await shape()).toBeCloseTo(before, 3);
   });
 
   test("keeps the hint and zoom controls off the map", async ({ page }) => {
@@ -207,9 +216,14 @@ test.describe("editing with a mouse", () => {
     const group = await picked(page);
     expect(group.length).toBeGreaterThan(1);
     expect(group).toContain(key);
-    const before = await Promise.all(group.map((k) => box(page, k!)));
+    // Measured against the map itself: the page may settle by a fraction of a pixel meanwhile.
+    const onMap = async (k: string) => {
+      const [b, m] = [await box(page, k), (await page.locator("#map").boundingBox())!];
+      return { x: b.x - m.x, y: b.y - m.y };
+    };
+    const before = await Promise.all(group.map((k) => onMap(k!)));
     await drag(page, c, { x: c.x + 50, y: c.y + 30 });
-    const after = await Promise.all(group.map((k) => box(page, k!)));
+    const after = await Promise.all(group.map((k) => onMap(k!)));
     after.forEach((a, i) => {
       expect(a.x - before[i].x).toBeCloseTo(50, 0);
       expect(a.y - before[i].y).toBeCloseTo(30, 0);
@@ -260,8 +274,9 @@ test.describe("editing with a mouse", () => {
     await page.locator("#pal-grid .pal-item").nth(2).click();
     const map = (await page.locator("#map").boundingBox())!;
     for (const [dx, dy] of [[0.3, 0.3], [0.5, 0.4], [0.6, 0.6]]) await page.mouse.click(map.x + map.width * dx, map.y + map.height * dy);
-    const hrefs = await page.locator('#map [data-key^="add:"] use').evaluateAll((els) => [...new Set(els.map((e) => e.getAttribute("href")))]);
-    expect(hrefs).toEqual(["#i-mountain-3"]);
+    // Placed as a picture (data-drawing) or as a line drawing (href="#i-...").
+    const drawings = await page.locator('#map [data-key^="add:"] :is(use, image)').evaluateAll((els) => [...new Set(els.map((e) => e.getAttribute("data-drawing") ?? e.getAttribute("href")!.slice(3)))]);
+    expect(drawings).toEqual(["mountain-3"]);
   });
 
   test("zoomed in, a drag on empty map pans and an item still follows the pointer", async ({ page }) => {
@@ -306,11 +321,12 @@ test.describe("editing with a mouse", () => {
     await page.keyboard.press("Control+y");
     await page.keyboard.press("Control+z");
     // The page as patched, item by item, must equal the same map drawn fresh from its link.
+    // (Picture addresses differ on every page load, so they are left out of the comparison.)
     const snapshot = () =>
-      page.evaluate(() => [...document.querySelectorAll<SVGElement>("#map [data-key]")].map((el) => el.outerHTML.replace(/ class="[^"]*"/, "")));
+      page.evaluate(() => [...document.querySelectorAll<SVGElement>("#map [data-key]")].map((el) => el.outerHTML.replace(/ class="[^"]*"/, "").replace(/href="blob:[^"]*"/g, 'href="blob"')));
     const patched = await snapshot();
     await page.goto(page.url());
-    await page.waitForFunction(() => document.querySelectorAll("#map use").length > 100);
+    await page.waitForFunction(() => document.querySelectorAll("#map image").length > 100);
     const fresh = await snapshot();
     expect(patched.length).toBe(fresh.length);
     expect(patched).toEqual(fresh);
@@ -406,12 +422,45 @@ test.describe("editing with a mouse", () => {
     await expect(item(page, title)).toContainText(second.toUpperCase());
   });
 
+  test("offers every kind in the library, loading a kind's drawings only when it is used", async ({ page }) => {
+    const fetched: string[] = [];
+    page.on("request", (r) => r.url().includes("/api/packs/") && fetched.push(r.url().split("/").pop()!));
+    await open(page);
+    expect(fetched).not.toContain("sea-monsters-v1.json"); // not needed to draw the map
+    await editMode(page);
+    await page.locator("#add-open").click();
+    await page.locator("#pal-role").selectOption("sea-monsters");
+    await expect(page.locator("#pal-grid .pal-item")).toHaveCount(4);
+    expect(fetched).toContain("sea-monsters-v1.json");
+    await page.locator("#pal-grid .pal-item").first().click();
+    const map = (await page.locator("#map").boundingBox())!;
+    await page.mouse.click(map.x + map.width * 0.3, map.y + map.height * 0.2);
+    await expect(page.locator('#map [data-role="sea-monsters"]')).toHaveCount(1);
+    await expect(page).toHaveURL(/&e=/); // the link is updated just after the change
+    // Opening the link elsewhere loads that kind for the map straight away.
+    fetched.length = 0;
+    await page.goto(page.url());
+    await page.waitForFunction(() => document.querySelectorAll('#map [data-role="sea-monsters"] :is(use, image)').length > 0);
+    expect(fetched).toContain("sea-monsters-v1.json");
+  });
+
+  test("shows pre-drawn pictures of the drawings, and line drawings when zoomed in close", async ({ page }) => {
+    await open(page);
+    expect(await page.locator("#map use").count()).toBe(0);
+    for (let i = 0; i < 3; i++) await page.locator("#zoom-in").click(); // 338%
+    await page.waitForFunction(() => document.querySelectorAll("#map use").length > 100);
+    expect(await page.locator("#map image").count()).toBe(0);
+    await page.locator("#zoom-fit").click();
+    await page.waitForFunction(() => document.querySelectorAll("#map image").length > 100);
+  });
+
   test("saves SVG and PNG files", async ({ page }) => {
     await open(page);
     const [svg] = await Promise.all([page.waitForEvent("download"), page.locator("#export-svg").click()]);
     expect(svg.suggestedFilename()).toBe("ink-map-482913.svg");
     const text = await (await svg.createReadStream()).toArray();
     expect(Buffer.concat(text).toString("utf8")).toContain("@font-face");
+    expect(Buffer.concat(text).toString("utf8")).not.toContain("blob:"); // line drawings, not the screen's pictures
     const [png] = await Promise.all([page.waitForEvent("download"), page.locator("#export-png").click()]);
     expect(png.suggestedFilename()).toBe("ink-map-482913.png");
   });

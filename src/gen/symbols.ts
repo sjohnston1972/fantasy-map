@@ -32,7 +32,21 @@ export const MAX_OVERLAP = 0.2;
 // From generator version 2, trees may overlap other trees this much (a forest is drawn as
 // overlapping trees, back to front); against any other symbol the usual limit applies.
 export const MAX_TREE_OVERLAP = 0.6;
+// From generator version 5, mountains may overlap other mountains this much, so they mass
+// into ranges; hills group the same way, and foothills may tuck behind mountains.
+export const MAX_MOUNTAIN_OVERLAP = 0.5;
+export const MAX_HILL_OVERLAP = 0.45;
+export const MAX_FOOTHILL_OVERLAP = 0.35;
 const TREES = new Set<string>(["conifer", "broadleaf"]);
+
+// How much two symbols may overlap, for a generator version.
+export function overlapLimit(a: string, b: string, v: number): number {
+  if (v >= 2 && TREES.has(a) && TREES.has(b)) return MAX_TREE_OVERLAP;
+  if (v >= 5 && a === "mountain" && b === "mountain") return MAX_MOUNTAIN_OVERLAP;
+  if (v >= 5 && a === "hill" && b === "hill") return MAX_HILL_OVERLAP;
+  if (v >= 5 && ((a === "hill" && b === "mountain") || (a === "mountain" && b === "hill"))) return MAX_FOOTHILL_OVERLAP;
+  return MAX_OVERLAP;
+}
 
 interface Rule {
   role: Role;
@@ -40,6 +54,9 @@ interface Rule {
   size: [number, number]; // width range in map pixels at the default map size
   aspect: number; // height divided by width
   where: (i: number) => number; // chance (0 to 1) of a symbol on this cell
+  // Width at the default map size for this cell, from a random number t (0 to 1); without
+  // it the width is picked at random within `size`.
+  sizeAt?: (i: number, t: number) => number;
 }
 
 export function placeSymbols(hy: Hydrology, cl: Climate, s: MapSettings, blocked?: Uint8Array): PlacedSymbol[] {
@@ -60,8 +77,35 @@ export function placeSymbols(hy: Hydrology, cl: Climate, s: MapSettings, blocked
 
   // Order matters: big features claim their ground first, small ones fill in around them.
   const rules: Rule[] = [
-    { role: "mountain", spacing: 30, size: [58, 104], aspect: 0.72, where: (i) => (b[i] === BIOME.mountain ? 0.35 + e[i] * 0.6 : 0) },
-    { role: "hill", spacing: 34, size: [32, 46], aspect: 0.5, where: (i) => (b[i] !== BIOME.mountain && e[i] > 0.3 ? 0.5 : 0) },
+    // Version 5 mountains stand closer and may overlap, massing into ranges, and grow with
+    // the height of the ground, so a range rises to its highest peaks.
+    s.v >= 5
+      ? {
+          role: "mountain",
+          spacing: 21,
+          size: [54, 112],
+          aspect: 0.72,
+          where: (i) => (b[i] === BIOME.mountain ? 0.6 + e[i] * 0.4 : 0),
+          sizeAt: (i, t) => {
+            const high = Math.min(1, Math.max(0, (e[i] - 0.35) / 0.55));
+            return 54 + (112 - 54) * (0.65 * high + 0.35 * t);
+          },
+        }
+      : { role: "mountain", spacing: 30, size: [58, 104], aspect: 0.72, where: (i) => (b[i] === BIOME.mountain ? 0.35 + e[i] * 0.6 : 0) },
+    // Version 5 hills group like the mountains: closer, overlapping, bigger on higher ground.
+    s.v >= 5
+      ? {
+          role: "hill",
+          spacing: 22,
+          size: [30, 52],
+          aspect: 0.5,
+          where: (i) => (b[i] !== BIOME.mountain && e[i] > 0.3 ? Math.min(0.85, 0.45 + (e[i] - 0.3) * 1.5) : 0),
+          sizeAt: (i, t) => {
+            const high = Math.min(1, Math.max(0, (e[i] - 0.3) / 0.3));
+            return 30 + (52 - 30) * (0.6 * high + 0.4 * t);
+          },
+        }
+      : { role: "hill", spacing: 34, size: [32, 46], aspect: 0.5, where: (i) => (b[i] !== BIOME.mountain && e[i] > 0.3 ? 0.5 : 0) },
     // Version 2 trees are drawn larger than the gap between them, so they overlap.
     v2
       ? { role: "conifer", spacing: 10.5, size: [16, 21], aspect: 1.6, where: (i) => (b[i] === BIOME.forest && isConifer(i) ? 0.93 : b[i] === BIOME.tundra ? 0.08 : 0) }
@@ -88,7 +132,7 @@ export function placeSymbols(hy: Hydrology, cl: Climate, s: MapSettings, blocked
         const x = gx + (next() - 0.5) * step;
         const y = gy + (next() - 0.5) * step;
         const roll = next();
-        const w = (rule.size[0] + next() * (rule.size[1] - rule.size[0])) * scale;
+        const t = next();
         const variant = next();
         const flip = next() < 0.5;
         const c = Math.floor(x / cellW);
@@ -96,11 +140,12 @@ export function placeSymbols(hy: Hydrology, cl: Climate, s: MapSettings, blocked
         if (c < 0 || r < 0 || c >= cols || r >= rows) continue;
         const i = r * cols + c;
         if (!land(i) || roll > rule.where(i)) continue;
+        const w = (rule.sizeAt ? rule.sizeAt(i, t) : rule.size[0] + t * (rule.size[1] - rule.size[0])) * scale;
         const h = w * rule.aspect;
         // The whole base must stand on dry land, clear of rivers.
         if (!footOnLand(x, y, w, cellW, cellH, cols, rows, land)) continue;
         const sym: PlacedSymbol = { role: rule.role, x, y, w, h, variant, flip };
-        if (grid.overlapsTooMuch(sym, v2)) continue;
+        if (grid.overlapsTooMuch(sym, s.v)) continue;
         grid.add(sym);
         placed.push(sym);
       }
@@ -212,12 +257,9 @@ class BoxGrid {
     for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) out.push(r * this.cols + c);
     return out;
   }
-  overlapsTooMuch(s: PlacedSymbol, treesMayOverlap = false): boolean {
+  overlapsTooMuch(s: PlacedSymbol, version: number): boolean {
     for (const k of this.keys(s))
-      for (const o of this.buckets.get(k) ?? []) {
-        const limit = treesMayOverlap && TREES.has(s.role) && TREES.has(o.role) ? MAX_TREE_OVERLAP : MAX_OVERLAP;
-        if (overlapShare(s, o) > limit) return true;
-      }
+      for (const o of this.buckets.get(k) ?? []) if (overlapShare(s, o) > overlapLimit(s.role, o.role, version)) return true;
     return false;
   }
   add(s: PlacedSymbol) {

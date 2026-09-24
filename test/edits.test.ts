@@ -312,6 +312,18 @@ describe("scale bar and borders", () => {
     expect(bigger.miles).toBeCloseTo(100);
   });
 
+  it("draws the stippled coast with a second shore line and dots, instead of ripple lines", () => {
+    const draw = (coast?: "ripples" | "stipple") => renderSvg({ width: map.settings.width, height: map.settings.height, water: map.water, symbols: map.symbols, towns: map.towns, labels: map.labels, coast });
+    const ripples = draw();
+    const stipple = draw("stipple");
+    expect(draw("ripples")).toBe(ripples);
+    expect(stipple).not.toBe(ripples);
+    const dots = (stipple.match(/h0/g) ?? []).length;
+    expect(dots).toBeGreaterThan(1000);
+    expect(draw("stipple")).toBe(stipple); // the same dots every time
+    expect(stipple.match(/<g data-content="1" transform="[^"]+">/)![0]).toBe(ripples.match(/<g data-content="1" transform="[^"]+">/)![0]);
+  });
+
   it("draws each border style in the band outside the map, leaving the map the same size", () => {
     const base = (border?: "classic" | "chequered" | "ornate" | "plain") => renderSvg({ width: map.settings.width, height: map.settings.height, water: map.water, symbols: map.symbols, towns: map.towns, labels: map.labels, border });
     const content = (svg: string) => svg.match(/<g data-content="1" transform="[^"]+">/)![0];

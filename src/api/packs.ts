@@ -40,11 +40,13 @@ export interface Pack {
 export interface Manifest {
   built: string;
   packs: Record<string, string>; // role -> file name
+  titles?: Record<string, string>; // role -> what the kind is called (its row title)
 }
 
 interface IconRow {
   id: string;
   subtype: string;
+  category: string | null;
   facing: string;
   width_px: number;
   height_px: number;
@@ -54,13 +56,13 @@ interface IconRow {
 }
 
 export async function buildPacks(env: PackEnv): Promise<Manifest> {
-  const rows = (await env.DB.prepare("SELECT id, subtype, facing, width_px, height_px, anchor_x, anchor_y, svg_key FROM icons WHERE status = 'approved' AND subtype IS NOT NULL AND subtype <> '' AND svg_key IS NOT NULL ORDER BY subtype, id").all()).results as unknown as IconRow[];
+  const rows = (await env.DB.prepare("SELECT id, subtype, category, facing, width_px, height_px, anchor_x, anchor_y, svg_key FROM icons WHERE status = 'approved' AND subtype IS NOT NULL AND subtype <> '' AND svg_key IS NOT NULL ORDER BY subtype, id").all()).results as unknown as IconRow[];
   const byRole = new Map<string, IconRow[]>();
   for (const r of rows) byRole.set(r.subtype, [...(byRole.get(r.subtype) ?? []), r]);
 
   const old = await readManifest(env);
   const built = new Date().toISOString();
-  const manifest: Manifest = { built, packs: {} };
+  const manifest: Manifest = { built, packs: {}, titles: {} };
   for (const [role, icons] of byRole) {
     if (!/^[a-z][a-z0-9-]{0,40}$/.test(role)) continue;
     const symbols: PackSymbol[] = [];
@@ -82,6 +84,9 @@ export async function buildPacks(env: PackEnv): Promise<Manifest> {
       });
     }
     if (!symbols.length) continue;
+    // What the kind is called, for the palette: its row title as read from the sheet.
+    const title = icons.find((i) => i.category)?.category;
+    if (title) manifest.titles![role] = title;
     // Keep the version when nothing changed, so caches stay warm.
     const prevName = old?.packs[role];
     const prevVersion = prevName ? Number(/-v(\d+)\.json$/.exec(prevName)?.[1] ?? 0) : 0;

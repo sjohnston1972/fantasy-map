@@ -11,9 +11,11 @@ import { addSymbol, applyEdits, changedKeys, editCount, isSymbolKey, layer, move
 import { embeddedFontCss, pngSize, saveBlob, svgToPng, svgToThumb, toBase64 } from "./export";
 import { saveMyMap } from "./mymaps";
 import { drawnBox, MapZoom, MAX_ZOOM, previewTransform, type View } from "./zoom";
+import { makeSprites, SPRITE_MAX_ZOOM } from "./sprites";
+import type { Sprite } from "../gen/svg";
 import { decodeEdits, decodeSettings, encodeEdits, encodeSettings, fingerprint } from "./share";
 import { randomSeed } from "../gen/rng";
-import { cleanSettings, DEFAULT_SETTINGS, GENERATOR_VERSION, type Border, type MapSettings } from "../gen/settings";
+import { cleanSettings, DEFAULT_SETTINGS, GENERATOR_VERSION, type Border, type Coast, type MapSettings } from "../gen/settings";
 
 // A-paper proportions (1 by the square root of 2), so a map prints on A3 or A4 exactly.
 const SHAPES: Record<string, [number, number]> = {
@@ -27,6 +29,7 @@ const els = {
   seed: $<HTMLInputElement>("#seed"),
   shape: $<HTMLSelectElement>("#shape"),
   border: $<HTMLSelectElement>("#border"),
+  coast: $<HTMLSelectElement>("#coast"),
   suggest: $<HTMLButtonElement>("#suggest"),
   sea: $<HTMLInputElement>("#sea"),
   seaOut: $<HTMLOutputElement>("#sea-out"),
@@ -90,6 +93,9 @@ const els = {
 // Zoom and pan (src/app/zoom.ts). The view survives redraws of the same map size, so a
 // slider can be tried on the part of the map being looked at.
 const zoom = new MapZoom(els.map, applyView, previewView);
+// The shaded relief is hidden while the map moves and shown again on a redraw, so with it
+// on, every move ends in a redraw.
+zoom.canSkipRedraw = () => els.relief.hidden === true;
 
 // The map box must never scroll (see app.css); browsers without "overflow: clip" can still
 // scroll a hidden overflow, so put it straight back if they do.
@@ -125,17 +131,51 @@ void loadInk();
 
 // Symbol packs load in the background (spec: "symbol packs load in the background"). The
 // map is drawn at once with placeholder shapes, then redrawn with the ink symbols.
+//
+// The library has many more kinds of drawing than a generated map uses (ships, beasts, and
+// so on, placed from Add symbols). Only the kinds the generator draws with load at the
+// start; any other kind loads when a map's added symbols use it or the palette opens it.
+const CORE_KINDS = new Set(["mountain", "hill", "conifer", "broadleaf", "reeds", "dune", "cactus", "snow", "grass", "field", "village", "town", "capital", "landmark", "bridge", "emblem"]);
+let manifest: { packs: Record<string, string>; titles?: Record<string, string> } | null = null;
+const loading = new Map<string, Promise<void>>();
+
 async function loadInk() {
   try {
-    const manifest = (await (await fetch("/api/packs/manifest.json")).json()) as { packs: Record<string, string> };
-    const packs = await Promise.all(
-      Object.values(manifest.packs).map(async (name) => (await (await fetch(`/api/packs/${name}`)).json()) as { role: string; symbols: InkSymbol[] }),
-    );
-    ink = toInkSet(packs);
+    manifest = (await (await fetch("/api/packs/manifest.json")).json()) as NonNullable<typeof manifest>;
+    await loadKinds(Object.keys(manifest.packs).filter((role) => CORE_KINDS.has(role)), false);
+    // Kinds this map's added symbols use (from its link, or a map opened from the gallery).
+    await loadKinds(usedKinds(linkEdits ?? edits), false);
     if (current) paint(current);
+    void buildSprites();
   } catch (err) {
     console.warn("Symbol packs did not load; keeping placeholder symbols.", err);
   }
+}
+
+function usedKinds(e: Edits): string[] {
+  return [...new Set(Object.values(e.added ?? {}).map((a) => a.role))];
+}
+
+// Fetch the drawings for some kinds, once each. With `repaint`, redraw the map afterwards
+// if anything new arrived.
+async function loadKinds(roles: string[], repaint = true) {
+  const wanted = roles.filter((role) => manifest?.packs[role] && !ink?.[role]);
+  if (!wanted.length) return;
+  await Promise.all(
+    wanted.map((role) => {
+      if (!loading.has(role))
+        loading.set(
+          role,
+          (async () => {
+            const pack = (await (await fetch(`/api/packs/${manifest!.packs[role]}`)).json()) as { role: string; symbols: InkSymbol[] };
+            ink = { ...ink, ...toInkSet([pack]) };
+          })(),
+        );
+      return loading.get(role)!;
+    }),
+  );
+  if (repaint && current) paint(current);
+  void buildSprites();
 }
 
 // Generate draws a new map. If a different seed has been typed in, that seed is drawn
@@ -146,18 +186,30 @@ els.form.addEventListener("submit", (e) => {
   readForm();
   draw();
 });
-// Sliders and the shape redraw as they change; the seed redraws on Enter or Generate.
-for (const input of [els.sea, els.mountains, els.forest, els.towns]) input.addEventListener("input", () => (readForm(), draw()));
+// The shape redraws as it changes, sliders when let go; the seed redraws on Enter or Generate.
+// Making a map takes a second or two, so dragging a slider only updates its number; the map
+// is made again once the slider is let go (or moved with the keyboard).
+for (const input of [els.sea, els.mountains, els.forest, els.towns]) {
+  input.addEventListener("input", showSliderValues);
+  input.addEventListener("change", () => (readForm(), draw()));
+}
+function showSliderValues() {
+  els.seaOut.value = `${els.sea.value}% water`;
+  els.mountainsOut.value = `${els.mountains.value}%`;
+  els.forestOut.value = `${els.forest.value}%`;
+  els.townsOut.value = els.towns.value;
+}
 els.shape.addEventListener("change", () => (readForm(), draw()));
-// The border changes only the frame, so the map is redrawn, not generated again (and its
-// edits and generator version stay as they are).
-els.border.addEventListener("change", () => {
-  settings = cleanSettings({ ...settings, border: els.border.value as Border });
-  if (!current) return;
-  current = { ...current, settings: { ...current.settings, border: settings.border } };
-  paint(current);
-  void updateLink();
-});
+// The border and coast styles change only the drawing, so the map is redrawn, not generated
+// again (and its edits and generator version stay as they are).
+for (const select of [els.border, els.coast])
+  select.addEventListener("change", () => {
+    settings = cleanSettings({ ...settings, border: els.border.value as Border, coast: els.coast.value as Coast });
+    if (!current) return;
+    current = { ...current, settings: { ...current.settings, border: settings.border, coast: settings.coast } };
+    paint(current);
+    void updateLink();
+  });
 els.showRelief.addEventListener("change", () => current && paintRelief(current));
 
 function readForm() {
@@ -181,6 +233,7 @@ function syncForm() {
   els.seed.value = String(settings.seed);
   els.shape.value = Object.keys(SHAPES).find((k) => SHAPES[k][0] === settings.width && SHAPES[k][1] === settings.height) ?? "portrait";
   els.border.value = settings.border;
+  els.coast.value = settings.coast;
   els.sea.value = String(Math.round(settings.sea_level * 100));
   els.seaOut.value = `${els.sea.value}% water`;
   els.mountains.value = String(Math.round(settings.mountain_density * 100));
@@ -228,9 +281,22 @@ function draw() {
   };
 }
 
-function svgFor(map: EditedMap, fontCss?: string): string {
+// Pictures of drawings for the map on screen (see sprites.ts), and whether the map now shown
+// uses them. Saved files and thumbnails always use the line drawings.
+const sprites = new Map<string, Sprite>();
+let spritesShown = false;
+const spritesWanted = () => sprites.size > 0 && zoom.level < SPRITE_MAX_ZOOM;
+
+async function buildSprites() {
+  if (!ink || !current) return;
+  const before = sprites.size;
+  await makeSprites(ink, Object.keys(ink), current.settings.width, els.map.getBoundingClientRect().width, sprites);
+  if (sprites.size > before && current) paint(current);
+}
+
+function svgFor(map: EditedMap, fontCss?: string, onScreen = false): string {
   const { width, height } = map.settings;
-  return renderSvg({ width, height, water: map.water, symbols: map.symbols, towns: map.towns, labels: map.labels, ink, fontCss, border: map.settings.border });
+  return renderSvg({ width, height, water: map.water, symbols: map.symbols, towns: map.towns, labels: map.labels, ink, fontCss, border: map.settings.border, coast: map.settings.coast, sprites: onScreen && spritesWanted() ? sprites : undefined });
 }
 
 function paint(map: GeneratedMap) {
@@ -239,7 +305,8 @@ function paint(map: GeneratedMap) {
   hitList = null;
   const { width, height } = map.settings;
   els.mapBox.style.aspectRatio = `${width} / ${height}`;
-  els.map.innerHTML = svgFor(edited);
+  spritesShown = spritesWanted();
+  els.map.innerHTML = svgFor(edited, undefined, true);
   const svg = els.map.querySelector("svg")!;
   svg.removeAttribute("width");
   svg.removeAttribute("height");
@@ -263,6 +330,7 @@ function applyView(v: View) {
   positionRelief();
   showZoomState();
   placeSelBox();
+  if (current && spritesShown !== spritesWanted()) paint(current);
 }
 
 // Mid-gesture: move the picture already drawn instead of redrawing the map.
@@ -357,7 +425,7 @@ function patchItems(keys: Set<string>): boolean {
   if (keys.size === 0) return true;
   if (keys.size > 1500) return false;
   const { width, height } = current.settings;
-  const input = { width, height, water: edited.water, symbols: edited.symbols, towns: edited.towns, labels: edited.labels, ink };
+  const input = { width, height, water: edited.water, symbols: edited.symbols, towns: edited.towns, labels: edited.labels, ink, sprites: spritesShown ? sprites : undefined };
   const { items, defs, paths } = renderItems(input, keys);
   const parse = (markup: string) => {
     const g = document.createElementNS(SVG_NS, "g");
@@ -512,7 +580,7 @@ function keysIn(rect: DOMRect, keep: (key: string) => boolean = () => true): str
     return h ? screenBox(h).toJSON() : null;
   },
   keys: () => hits().map((h) => h.key),
-  state: () => ({ edits, picked, undo: undoStack.length, view: zoom.view }),
+  state: () => ({ edits, picked, undo: undoStack.length, view: zoom.view, sprites: spritesShown }),
 };
 
 function pickAt(e: PointerEvent): string | null {
@@ -742,10 +810,10 @@ els.map.addEventListener("pointerdown", (e) => {
     return;
   }
   if (!picked.includes(key)) select(key);
-  const svg = els.map.querySelector("svg")!;
-  // Screen pixels to map pixels: the zoomed view, and the frame's slight shrink inside it.
+  // Screen pixels to map pixels: the zoomed view over the map's box, and the frame's slight
+  // shrink inside it (the same measure picking and the selection box use, so they agree).
   const { width: W, height: H } = current!.settings;
-  const scale = svg.viewBox.baseVal.width / svg.getBoundingClientRect().width / frameFor(W, H).scale;
+  const scale = zoom.view.w / els.map.getBoundingClientRect().width / frameFor(W, H).scale;
   // The picked items, and the names and banners of any picked towns, move together.
   const items = [...picked, ...followers(picked)].flatMap((k) => {
     const it = itemEl(k);
@@ -1115,9 +1183,22 @@ function openPalette() {
   }
   els.palette.hidden = false;
   els.addOpen.setAttribute("aria-expanded", "true");
-  const kinds = ADD_KINDS.filter(([role]) => ink?.[role]?.length);
   if (!els.palRole.options.length) {
-    els.palRole.replaceChildren(...kinds.map(([role, label]) => new Option(`${label} (${ink![role].length})`, role)));
+    // The map's own kinds first, in the usual order, then every other kind in the library,
+    // named from its sheet title.
+    const core = ADD_KINDS.filter(([role]) => ink?.[role]?.length).map(([role, label]) => new Option(`${label} (${ink![role].length})`, role));
+    const extra = Object.keys(manifest?.packs ?? {})
+      .filter((role) => !ADD_KINDS.some(([r]) => r === role))
+      .map((role) => [role, manifest?.titles?.[role] ?? role.replace(/-/g, " ")] as const)
+      .sort((a, b) => a[1].localeCompare(b[1]))
+      .map(([role, title]) => new Option(title.charAt(0).toUpperCase() + title.slice(1), role));
+    els.palRole.replaceChildren(...core);
+    if (extra.length) {
+      const group = document.createElement("optgroup");
+      group.label = "More from the library";
+      group.append(...extra);
+      els.palRole.append(group);
+    }
   }
   fillGrid();
   els.palRole.focus();
@@ -1133,6 +1214,13 @@ function closePalette() {
 // One button per drawing of the chosen kind, showing the drawing itself.
 function fillGrid() {
   const role = els.palRole.value;
+  if (!ink?.[role] && manifest?.packs[role]) {
+    // A kind not loaded yet: fetch its drawings, then show them.
+    els.palGrid.replaceChildren();
+    els.palHint.textContent = "Loading the drawings...";
+    void loadKinds([role], false).then(() => els.palRole.value === role && fillGrid());
+    return;
+  }
   const list = ink?.[role] ?? [];
   els.palGrid.replaceChildren(
     ...list.map((icon, index) => {
@@ -1173,7 +1261,7 @@ function placeAt(clientX: number, clientY: number) {
   const p = zoom.toMap(clientX, clientY); // page pixels
   const mx = (p.x - fr.dx) / fr.scale; // map pixels
   const my = (p.y - fr.dy) / fr.scale;
-  const base = ADD_KINDS.find(([r]) => r === placing!.role)?.[2] ?? 30;
+  const base = ADD_KINDS.find(([r]) => r === placing!.role)?.[2] ?? 40; // other kinds: a middling size
   const w = base * (W / 1600) * (Number(els.palSize.value) / 100) * (vary ? 0.85 + Math.random() * 0.3 : 1);
   const h = (w * icon.h) / icon.w;
   const { edits: next, key } = addSymbol(edits, { role: placing.role, x: mx, y: my + h / 2, w, h, variant: (index + 0.5) / list.length, flip: vary ? Math.random() < 0.5 : false, name: settlementName(placing.role, mx, my) });

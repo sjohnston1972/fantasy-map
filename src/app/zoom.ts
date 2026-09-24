@@ -129,8 +129,8 @@ export class MapZoom {
   pan(dxScreen: number, dyScreen: number, moving = false) {
     const k = this.perPixel();
     const v = panBy(this.view, this.W, this.H, dxScreen * k, dyScreen * k);
-    if (moving) this.glide(v);
-    else this.set(v);
+    this.glide(v);
+    if (!moving) this.settle();
   }
 
   wheel(e: WheelEvent) {
@@ -182,8 +182,21 @@ export class MapZoom {
     const was = this.pointers.size;
     this.pointers.delete(e.pointerId);
     this.last = this.pointers.size ? this.gesture() : null;
-    // Last finger lifted: draw the view it ended on.
-    if (was && !this.pointers.size && this.view !== this.drawn) this.set(this.view);
+    // Last finger lifted: draw the view it ended on, if it needs drawing.
+    if (was && !this.pointers.size && this.view !== this.drawn) this.settle();
+  }
+
+  // Redrawing a busy map takes a noticeable moment, so a pan that stays within the margin
+  // already drawn around the view keeps the picture as it is (moved); only a change of zoom
+  // (to draw the ink sharp at the new scale) or a pan past the margin redraws.
+  canSkipRedraw: () => boolean = () => true;
+  private settle() {
+    const d = this.drawn;
+    const v = this.view;
+    const sameZoom = Math.abs(v.w - d.w) < d.w * 1e-6;
+    const inside = Math.abs(v.x - d.x) <= d.w * MARGIN * 0.9 && Math.abs(v.y - d.y) <= d.h * MARGIN * 0.9;
+    if (sameZoom && inside && this.canSkipRedraw()) return;
+    this.set(v);
   }
 
   // Midpoint of the pointers and, for two or more, the spread between the first two.

@@ -8,7 +8,7 @@ import { WATER_LAKE, WATER_SEA, type Hydrology } from "./hydrology";
 import { pickSymbol, type InkSet, type InkSymbol } from "./inkset";
 import { compassBox, textWidth, titleFrame, type Emblem, type Label, type Labelling } from "./labels";
 import type { Bridge, Landmark, Settlement, Settlements } from "./settlements";
-import type { Border } from "./settings";
+import type { Border, Coast } from "./settings";
 import type { PlacedSymbol } from "./symbols";
 
 export interface SvgInput {
@@ -21,13 +21,23 @@ export interface SvgInput {
   labels?: Labelling;
   fontCss?: string; // embedded @font-face rules, for SVG files saved outside the page
   border?: Border; // frame style (classic when left out)
+  coast?: Coast; // how the sea is drawn along the shore (ripples when left out)
+  sprites?: Map<string, Sprite>; // pre-drawn pictures of drawings, for the map on screen only
+}
+
+// A drawing pre-drawn as a picture (see src/app/sprites.ts): its address, and the room
+// around the drawing for its white outline, as a share of the drawing's width and height.
+export interface Sprite {
+  href: string;
+  padX: number;
+  padY: number;
 }
 
 const INK = "#1a1714";
 
 // The ground (sea ripples, coast, lakes, rivers, roads) takes most of the drawing time and
 // never changes while a map is edited, so it is drawn once per map and reused.
-const baseCache = new WeakMap<Hydrology, { roads: unknown; svg: string }>();
+const baseCache = new WeakMap<Hydrology, { roads: unknown; coast: Coast; svg: string }>();
 
 // Stand-in variant for items whose drawing is chosen by position (towns, landmarks,
 // bridges): the same place always gets the same drawing, unless the user swaps it.
@@ -60,7 +70,7 @@ export function renderSvg(m: SvgInput): string {
   const { width: W, height: H, water: hy } = m;
   const px = W / 1600;
   const parts: string[] = [];
-  const defs = new InkDefs();
+  const defs = new InkDefs(m.sprites);
   parts.push(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" data-generator="ink-fantasy-maps">`);
   if (m.fontCss) parts.push(`<style>${m.fontCss}</style>`);
   parts.push(`<rect width="${W}" height="${H}" fill="#fff"/>`);
@@ -71,10 +81,11 @@ export function renderSvg(m: SvgInput): string {
 
   const cached = baseCache.get(hy);
   const roads = m.towns?.roads ?? null;
-  let base = cached && cached.roads === roads ? cached.svg : "";
+  const coast = m.coast ?? "ripples";
+  let base = cached && cached.roads === roads && cached.coast === coast ? cached.svg : "";
   if (!base) {
-    base = renderBase(W, H, hy, m.towns);
-    baseCache.set(hy, { roads, svg: base });
+    base = renderBase(W, H, hy, m.towns, coast);
+    baseCache.set(hy, { roads, coast, svg: base });
   }
   parts.push(base);
 
@@ -325,7 +336,7 @@ export function layerOrder(m: Pick<SvgInput, "symbols" | "towns" | "labels">): R
 // river names.
 export function renderItems(m: SvgInput, keys: Iterable<string>): { items: Map<string, string>; defs: [string, string][]; paths: [string, string][] } {
   const want = new Set(keys);
-  const defs = new InkDefs();
+  const defs = new InkDefs(m.sprites);
   const draw = itemDrawer(m, defs);
   const items = new Map<string, string>();
   const paths: [string, string][] = [];
@@ -400,18 +411,25 @@ function frameMarkup(fr: Frame, border: Border, px: number): string {
 }
 
 // Sea ripples, land, lakes, rivers and roads.
-function renderBase(W: number, H: number, hy: Hydrology, towns?: Settlements): string {
+function renderBase(W: number, H: number, hy: Hydrology, towns?: Settlements, coast: Coast = "ripples"): string {
   const sx = W / hy.cols;
   const sy = H / hy.rows;
   const px = W / 1600;
   const toMap = (loop: Pt[]): Pt[] => loop.map(([x, y]) => [x * sx, y * sy]);
   const parts: string[] = [];
 
-  // Ripple lines in the sea, following the coast at two distances (engraved-map style).
   const seaDist = distanceFrom(hy, (i) => hy.water[i] !== WATER_SEA);
-  for (const [d, width] of [[2, 0.9], [4.5, 0.6]] as const) {
-    const loops = outlines(hy.cols, hy.rows, (i) => hy.water[i] !== WATER_SEA || seaDist[i] <= d).map((l) => toMap(smoothLoop(l, 3)));
-    parts.push(`<path d="${pathOf(loops)}" fill="none" stroke="${INK}" stroke-width="${width}" stroke-opacity="0.8"/>`);
+  if (coast === "stipple") {
+    // A second, fine shore line just offshore, and stippled dots fading out to sea.
+    const offshore = outlines(hy.cols, hy.rows, (i) => hy.water[i] !== WATER_SEA || seaDist[i] <= 1).map((l) => toMap(smoothLoop(l, 3)));
+    parts.push(`<path d="${pathOf(offshore)}" fill="none" stroke="${INK}" stroke-width="${(0.9 * px).toFixed(2)}"/>`);
+    parts.push(stipple(hy, sx, sy, px, (i) => (hy.water[i] === WATER_SEA ? seaDist[i] : Infinity), 7, 1.1));
+  } else {
+    // Ripple lines in the sea, following the coast at two distances (engraved-map style).
+    for (const [d, width] of [[2, 0.9], [4.5, 0.6]] as const) {
+      const loops = outlines(hy.cols, hy.rows, (i) => hy.water[i] !== WATER_SEA || seaDist[i] <= d).map((l) => toMap(smoothLoop(l, 3)));
+      parts.push(`<path d="${pathOf(loops)}" fill="none" stroke="${INK}" stroke-width="${width}" stroke-opacity="0.8"/>`);
+    }
   }
 
   // Land, with a bold coastline.
@@ -423,8 +441,12 @@ function renderBase(W: number, H: number, hy: Hydrology, towns?: Settlements): s
   if (lakes.length) {
     parts.push(`<path d="${pathOf(lakes)}" fill="#fff" fill-rule="evenodd" stroke="${INK}" stroke-width="1.6" stroke-linejoin="round"/>`);
     const lakeDist = distanceFrom(hy, (i) => hy.water[i] !== WATER_LAKE);
-    const inner = outlines(hy.cols, hy.rows, (i) => hy.water[i] === WATER_LAKE && lakeDist[i] > 2).map((l) => toMap(smoothLoop(l, 3)));
-    if (inner.length) parts.push(`<path d="${pathOf(inner)}" fill="none" stroke="${INK}" stroke-width="0.6" stroke-opacity="0.8"/>`);
+    if (coast === "stipple") {
+      parts.push(stipple(hy, sx, sy, px, (i) => (hy.water[i] === WATER_LAKE ? lakeDist[i] : Infinity), 3.5, 1.2));
+    } else {
+      const inner = outlines(hy.cols, hy.rows, (i) => hy.water[i] === WATER_LAKE && lakeDist[i] > 2).map((l) => toMap(smoothLoop(l, 3)));
+      if (inner.length) parts.push(`<path d="${pathOf(inner)}" fill="none" stroke="${INK}" stroke-width="0.6" stroke-opacity="0.8"/>`);
+    }
   }
 
   // Rivers: filled ribbons, hairline at the source and widening with the water carried.
@@ -461,6 +483,7 @@ function escapeXml(s: string): string {
 // is drawn twice: a white outline first (the knockout, so symbols in front hide the lines
 // of those behind, as an engraver would leave them out), then the ink.
 class InkDefs {
+  constructor(private sprites?: Map<string, Sprite>) {}
   private ids = new Map<string, string>();
   private symbols: [string, string][] = [];
   private ref(icon: InkSymbol): string {
@@ -486,6 +509,13 @@ class InkDefs {
     // stroke is set in those units: about 1.3 map pixels wide.
     const halo = (1.3 * (mapWidth / 1600)) / (0.1 * k);
     const mirror = flip ? ` transform="translate(${f(2 * x)} 0) scale(-1 1)"` : "";
+    // Pre-drawn as a picture (outline and ink together): place the picture instead.
+    const sprite = this.sprites?.get(icon.id);
+    if (sprite) {
+      const px = sprite.padX * dw;
+      const py = sprite.padY * dh;
+      return `<g${mirror}><image href="${sprite.href}" data-drawing="${icon.id}" x="${f(left - px)}" y="${f(top - py)}" width="${f(dw + 2 * px)}" height="${f(dh + 2 * py)}" preserveAspectRatio="none"/></g>`;
+    }
     const at = `href="#${id}" x="${f(left)}" y="${f(top)}" width="${f(dw)}" height="${f(dh)}"`;
     return `<g${mirror}><use ${at} color="#fff" stroke="#fff" stroke-width="${halo.toFixed(1)}" stroke-linejoin="round"/><use ${at} color="${INK}" stroke="none"/></g>`;
   }
@@ -534,6 +564,37 @@ function placeholder(s: PlacedSymbol, k: number, key: string): string {
       // Any other kind (an added town, banner or landmark before its drawings load): a ringed dot.
       return g(`<circle cx="${n(x)}" cy="${n(y - h / 2)}" r="${n(Math.min(w, h) / 3)}" fill="#fff" stroke-width="1"/><circle cx="${n(x)}" cy="${n(y - h / 2)}" r="${n(Math.min(w, h) / 8)}" fill="#1a1714" stroke="none"/>`);
   }
+}
+
+// Stippled dots in water near a shore: thick at the shore, thinning out to `reach` cells away.
+// `dist` gives each cell's distance from the shore (Infinity where there should be none).
+// Where each dot falls is worked out from the cell's number, so the same map always gets the
+// same dots. All dots go in one path (a zero-length line with round ends draws a dot), which
+// keeps the drawing light even with thousands of them.
+function stipple(hy: Hydrology, sx: number, sy: number, px: number, dist: (i: number) => number, reach: number, density: number): string {
+  const d: string[] = [];
+  const hash = (n: number) => {
+    let h = Math.imul(n ^ 0x9e3779b9, 0x85ebca6b);
+    h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35);
+    return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+  };
+  const n = hy.cols * hy.rows;
+  for (let i = 0; i < n; i++) {
+    const di = dist(i);
+    if (!(di >= 1 && di <= reach)) continue;
+    // Dots per cell: several at the shore, fading to none at the reach.
+    const f = 1 - (di - 1) / reach;
+    const count = density * f * f * 2.2;
+    const c = i % hy.cols;
+    const r = (i - c) / hy.cols;
+    for (let k = 0; k < 3; k++) {
+      if (hash(i * 7 + k) >= count - k) continue;
+      const x = (c + hash(i * 13 + k * 3 + 1)) * sx;
+      const y = (r + hash(i * 17 + k * 5 + 2)) * sy;
+      d.push(`M${x.toFixed(1)} ${y.toFixed(1)}h0`);
+    }
+  }
+  return d.length ? `<path d="${d.join("")}" fill="none" stroke="${INK}" stroke-width="${(1.1 * px).toFixed(2)}" stroke-linecap="round"/>` : "";
 }
 
 // Distance in cells from the nearest cell where `source` is true (breadth-first).

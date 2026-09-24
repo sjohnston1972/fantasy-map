@@ -11,8 +11,9 @@
 //   | seed, in base 36 to keep it short
 //   generator version (the settings' v field)
 //
-// An eighth field, only when the frame is not the classic one, gives the border style:
-// k (chequered), o (ornate) or p (plain).
+// An eighth field, only when the drawing style is not the default, gives the border style
+// (c classic, k chequered, o ornate, p plain), followed by s when the coast is stippled:
+// "k", "cs", "os".
 //
 // The sliders work in whole per cents, so the per cent values round-trip exactly and the
 // map rebuilt from a code is the same map.
@@ -28,7 +29,7 @@ const pct = (x: number) => Math.round(x * 100);
 export function encodeSettings(s: MapSettings): string {
   const shape = Object.keys(SHAPES).find((k) => SHAPES[k][0] === s.width && SHAPES[k][1] === s.height) ?? `${s.width}x${s.height}`;
   const fields = [s.v, s.seed.toString(36), shape, pct(s.sea_level), pct(s.mountain_density), pct(s.forest_density), s.town_count];
-  if (s.border !== "classic") fields.push(BORDER_CODES[s.border]);
+  if (s.border !== "classic" || s.coast !== "ripples") fields.push(BORDER_CODES[s.border] + (s.coast === "stipple" ? "s" : ""));
   return fields.join(".");
 }
 
@@ -38,7 +39,8 @@ export function decodeSettings(code: string): { settings: MapSettings; version: 
   const parts = code.trim().split(".");
   if (parts.length < 7 || !parts.every((p) => /^[0-9a-z]+$/i.test(p))) return null;
   const [v, seed, shape, sea, mountains, forest, towns, borderCode] = parts;
-  const border = (Object.keys(BORDER_CODES) as Border[]).find((b) => BORDER_CODES[b] === borderCode) ?? "classic";
+  const border = (Object.keys(BORDER_CODES) as Border[]).find((b) => BORDER_CODES[b] === borderCode?.[0]) ?? "classic";
+  const coast = borderCode?.[1] === "s" ? "stipple" : "ripples";
   const version = Number(v);
   const size = SHAPES[shape] ?? shape.match(/^(\d+)x(\d+)$/)?.slice(1).map(Number);
   const seedNum = parseInt(seed, 36);
@@ -53,6 +55,7 @@ export function decodeSettings(code: string): { settings: MapSettings; version: 
     forest_density: Number(forest) / 100,
     town_count: Number(towns),
     border,
+    coast,
   });
   return { settings, version };
 }
@@ -161,7 +164,7 @@ export async function decodeEdits(code: string): Promise<Edits | null> {
       if (!key?.startsWith("add:") || !Array.isArray(v) || !room()) continue;
       const [role, x, y, w, h, variant, flip, name] = v;
       const nums = [num(x, -1000, 10000), num(y, -1000, 10000), num(w, 2, 600), num(h, 2, 600), num(variant, 0, 0.999999)];
-      if (typeof role !== "string" || !/^[a-z]{2,20}$/.test(role) || nums.some((n) => n === null)) continue;
+      if (typeof role !== "string" || !/^[a-z][a-z0-9-]{1,40}$/.test(role) || nums.some((n) => n === null)) continue;
       e.added[key] = { role, x: nums[0]!, y: nums[1]!, w: nums[2]!, h: nums[3]!, variant: nums[4]!, flip: flip === 1, ...(typeof name === "string" && name.trim() ? { name: name.replace(/[\u0000-\u001f\u007f]/g, "").slice(0, 40) } : {}) };
     }
     return e;

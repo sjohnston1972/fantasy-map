@@ -414,3 +414,56 @@ can only be reopened by dropping its file again on the Import page.
 - **Title wordings:** a picked title shows "Suggest another", cycling through its region's
   usual wordings (The Kingdom of, The Realm of, The Jarldom of...); any wording can still be
   typed.
+
+## Map bar, and generator version 5: mountain ranges
+
+- The hint and zoom controls sat over the map's corners (Steven: they "encroach on the
+  map"). They now share a fixed-height bar above the map, as wide as the map; the wording
+  box for a picked name takes the hint's place. Only the bar of actions for picked items
+  still floats over the map, next to what is picked.
+- Steven: mountains "need to be grouped closer together like the trees, overlapping". From
+  version 5 (links starting `5.`) mountains stand on a finer grid (21 px instead of 30),
+  more of the mountain ground gets a peak, and a mountain may overlap another mountain by up
+  to 50%, drawn back to front, so they mass into ranges. Peak size follows the height of
+  the ground (bigger on the highest ground), so each range rises to its summits. About twice
+  as many mountains as before. **This relaxes the spec's 20% overlap rule for mountain on
+  mountain too**; every other pair (apart from tree on tree) keeps 20%.
+- Hills group the same way (Steven: "group the hills the same way"): a finer grid (22 px
+  instead of 34), more of them on higher ground and bigger there, up to 45% overlap with
+  each other, and foothills may tuck behind mountains (up to 35%).
+- Open: a range could be drawn as a chain along its ridge line (the spec's Phase 2
+  "mountain ranges drawn as chains of symbols").
+
+## The whole sheet library, loading on demand, stippled coast, speed
+
+- **Every sheet row imported** (Steven: "rip out the rest of the gpt images and further
+  populate the symbols"). The importer now takes every titled row, not only the map roles:
+  known rows go to their roles with higher caps (mountains 48, landmarks 36, trees 24, ...),
+  every other row becomes a kind of its own named from its title (ships and boats, sea
+  creatures, dragons, siege engines, glaciers, ...; up to 30 icons each), and sheets imported
+  before are revisited, adding only icons not yet stored. Misread captions ("b () b (j)",
+  "u l t") are skipped; those rows are left for the Import page. The library now has 227
+  kinds; the pack manifest also carries each kind's title for the palette.
+  - Open: some kinds are mixed bags ("miscellaneous", "unique features", "map symbols");
+    they could be sorted or dropped in the Library page. More drawings in the map roles also
+    means existing maps may show different drawings of the same kind (layout is unchanged).
+- **Kinds load on demand:** the page loads only the kinds a generated map draws with at the
+  start; other kinds load when a map's added symbols use them or the palette opens them.
+  The palette lists every kind ("More from the library").
+- **Fix:** links dropped added symbols of kinds with hyphenated names (all the new library
+  kinds); they now survive links and the gallery.
+- **Stippled coast** (Steven's reference drawing): a Coast choice next to Border, "ripple
+  lines" (as before) or "double line and stippling": a fine second shore line just offshore
+  and dots fading out to sea (lakes too), drawn as one path so it stays light. Drawing only;
+  the share code's style field gains `s` (for example `cs`, `ks`).
+- **Speed** (Steven: sliders and zooming sluggish on dense forest):
+  - Sliders now make the map again when let go, not on every step of a drag.
+  - Measured: letting go after a pan redrew the whole map (0.7 to 1 s on a dense map). A pan
+    that stays inside the margin already drawn now keeps the picture and redraws nothing.
+  - Each distinct drawing is pre-drawn once into a small picture (outline and ink together),
+    and the map on screen places pictures instead of thousands of line drawings; past 3x
+    zoom it switches back to the line drawings so the ink stays sharp. Saved files, PNGs and
+    thumbnails always use the line drawings.
+- **Fix:** a long hint (for example "184 items picked...") widened the column above the map
+  and stretched the map's box, so drags and picking drifted by about 2%. The bar now never
+  widens the map; long hints are cut short.

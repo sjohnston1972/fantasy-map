@@ -1,7 +1,9 @@
 // Imports symbol sheets into the live library, the same way the Import page does: split,
 // read row titles, trace, then store approved icons in R2 and D1 through the Worker's own
-// import code. Only rows that match a map role are imported; everything else on a sheet is
-// left for a person to import by hand later.
+// import code. Rows that match a map role go to that role; every other titled row becomes a
+// kind of its own, named from its title (ships, sea monsters, ...), which the map page's
+// Add symbols palette offers. Sheets imported before are revisited: icons already stored
+// are left alone and the rest are added.
 //
 // Approval rule (Steven asked for the script to decide): an icon is approved when the
 // splitter raised no flags (no automatic cut, no nearby marks left out), it does not touch
@@ -24,24 +26,42 @@ import { configFromEnv, d1, r2, readDotEnv } from "./cf-storage";
 
 const SOURCE_TOOL = "ChatGPT (paid subscription)";
 
-// Row title patterns for each map role, and how many icons each role keeps.
+// Row title patterns for each map role, and how many icons each role keeps. The generator
+// draws with these, so every page loads them; the caps keep that download reasonable.
 const ROLES: { role: string; match: RegExp; cap: number }[] = [
-  { role: "mountain", match: /^(single peaks|jagged peaks|rugged peaks|snow.?capped|peaks|twin summits)$/, cap: 32 },
-  { role: "hill", match: /^(gentle hills|rocky hills|hills and foothills)$/, cap: 20 },
-  { role: "conifer", match: /^trees \(coniferous\)$/, cap: 12 },
-  { role: "broadleaf", match: /^trees \(deciduous\)$/, cap: 12 },
-  { role: "reeds", match: /^marsh reeds$/, cap: 10 },
-  { role: "dune", match: /^sand dunes$/, cap: 14 },
-  { role: "cactus", match: /^cacti( and succulents)?$/, cap: 12 },
-  { role: "snow", match: /^snowfields$/, cap: 8 },
-  { role: "grass", match: /^scrub & heath$/, cap: 8 },
-  { role: "village", match: /^villages$/, cap: 8 },
-  { role: "town", match: /^towns$/, cap: 8 },
-  { role: "capital", match: /^cities$/, cap: 8 },
-  { role: "bridge", match: /^bridges (& crossings|and fords)$/, cap: 12 },
-  { role: "landmark", match: /^(ruins|forts and outposts|temples and religious sites)$/, cap: 20 },
-  { role: "emblem", match: /^banners & standards$/, cap: 8 },
+  { role: "mountain", match: /^(single peaks|jagged peaks|rugged peaks|snow.?capped|peaks|twin summits)$/, cap: 48 },
+  { role: "hill", match: /^(gentle hills|rocky hills|hills and foothills)$/, cap: 32 },
+  { role: "conifer", match: /^trees \(coniferous\)$/, cap: 24 },
+  { role: "broadleaf", match: /^trees \(deciduous\)$/, cap: 24 },
+  { role: "reeds", match: /^marsh reeds$/, cap: 16 },
+  { role: "dune", match: /^sand dunes$/, cap: 16 },
+  { role: "cactus", match: /^cacti( and succulents)?$/, cap: 16 },
+  { role: "snow", match: /^snowfields$/, cap: 12 },
+  { role: "grass", match: /^scrub & heath$/, cap: 12 },
+  { role: "village", match: /^villages$/, cap: 12 },
+  { role: "town", match: /^towns$/, cap: 12 },
+  { role: "capital", match: /^cities$/, cap: 12 },
+  { role: "bridge", match: /^bridges (& crossings|and fords)$/, cap: 16 },
+  { role: "landmark", match: /^(ruins|forts and outposts|temples and religious sites)$/, cap: 36 },
+  { role: "emblem", match: /^banners & standards$/, cap: 16 },
 ];
+// Every other titled row becomes a kind of its own, keeping up to this many icons. These are
+// loaded by the page only when used, so they can be generous.
+const EXTRA_CAP = 30;
+
+// A kind's name from a row title: "Sea Monsters & Serpents" -> "sea-monsters-and-serpents".
+// Never the same as a map role (those come from ROLES above).
+function kindOf(title: string): string | null {
+  // Small captions under icons are sometimes misread as row titles ("b () b (j)", "u l t"):
+  // a real title has a word of four letters or more and is not mostly single letters.
+  const words = title.toLowerCase().match(/[a-z]+/g) ?? [];
+  if (!words.some((w) => w.length >= 4) || words.filter((w) => w.length <= 2).length > words.length / 2) return null;
+  let slug = title.toLowerCase().replace(/&/g, " and ").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 36).replace(/-+$/, "");
+  if (slug.length < 3) return null; // too short to be a real title (misread text)
+  if (!/^[a-z]/.test(slug)) slug = `x-${slug}`;
+  if (ROLES.some((r) => r.role === slug)) slug = `more-${slug}`;
+  return slug;
+}
 
 const dryRun = process.argv.includes("--dry-run");
 const env = readDotEnv(readFileSync(".env", "utf8"));
@@ -100,26 +120,28 @@ for (const file of files) {
   const ink = makeInk(img, DEFAULT_SETTINGS);
   let review: Review = fromSplit(result, ink);
 
-  // Read each row title and decide which rows hold a map role.
+  // A sheet imported before: keep its saved review (which records what was stored), and
+  // note the icons already in the library so they are left alone.
+  const before = await handleImport(new Request(`https://local/api/import/sheets/${sheetId}`), storage, `sheets/${sheetId}`);
+  const stored = new Set<string>();
+  const known = before.status === 200 ? ((await before.json()) as { icons: { id: string }[]; review: { review?: Review } | null }) : null;
+  if (known) {
+    for (const i of known.icons) stored.add(i.id);
+    if (known.review?.review) review = known.review.review;
+  }
+
+  // Read each row title and decide which kind each row holds.
   const picks: { rowIndex: number; role: string; title: string }[] = [];
   for (const row of review.rows) {
     if (!row.title) continue;
     const p = prepareTitle(img, row.title);
     const title = cleanCategory((await ocr.recognize(pngBytes(p.data, p.width, p.height))).data.text);
-    review = setRowTags(review, row.index, { category: title || null });
-    const rule = ROLES.find((r) => r.match.test(title));
-    if (rule) {
-      review = setRowTags(review, row.index, { subtype: rule.role, scales: ["region"], kind: "point" });
-      picks.push({ rowIndex: row.index, role: rule.role, title });
-    }
+    const role = ROLES.find((r) => r.match.test(title))?.role ?? (title ? kindOf(title) : null);
+    if (!role) continue;
+    review = setRowTags(review, row.index, { category: title || null, subtype: role, scales: ["region"], kind: "point" });
+    picks.push({ rowIndex: row.index, role, title });
   }
   if (!picks.length) continue;
-
-  const status = await handleImport(new Request(`https://local/api/import/sheets/${sheetId}`), storage, `sheets/${sheetId}`);
-  if (status.status === 200) {
-    summary.push(`${file}: already in the library, skipped`);
-    continue;
-  }
 
   const traceSettings = { ...DEFAULT_TRACE, upscale: medianHeight(allIcons(review)) < MIN_PRINT_HEIGHT };
   let approved = 0;
@@ -129,12 +151,13 @@ for (const file of files) {
   for (const pick of picks) {
     const row = review.rows.find((r) => r.index === pick.rowIndex)!;
     for (const icon of row.icons) {
+      if (icon.savedId || stored.has(iconName(review, sheetId, icon))) continue; // already in the library
       let why = "";
       if (icon.flags.length) why = icon.flags.join("+");
       else if (icon.extras.length) why = "marks left out";
       else if (icon.x <= 1 || icon.y <= 1 || icon.x + icon.w >= img.width - 1 || icon.y + icon.h >= img.height - 1) why = "touches the sheet edge";
       else if (icon.h < 12 || icon.w < 12) why = "too small";
-      if ((kept.get(pick.role) ?? 0) >= (ROLES.find((r) => r.role === pick.role)?.cap ?? 0) && !why) continue; // role full: leave as draft
+      if ((kept.get(pick.role) ?? 0) >= (ROLES.find((r) => r.role === pick.role)?.cap ?? EXTRA_CAP) && !why) continue; // kind full: leave as draft
       if (!why) kept.set(pick.role, (kept.get(pick.role) ?? 0) + 1);
       decisions.push({ icon, role: pick.role, title: pick.title, ok: !why });
       if (why) reasons.set(why, (reasons.get(why) ?? 0) + 1);
@@ -146,7 +169,8 @@ for (const file of files) {
     continue;
   }
 
-  // Register the sheet and store its PNG, then each icon.
+  // Register the sheet (a sheet seen before is simply reported as existing) and store its
+  // PNG, then each icon.
   await api("sheets", {
     method: "POST",
     headers: { "Content-Type": "application/json" },

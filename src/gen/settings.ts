@@ -8,12 +8,18 @@
 //   2: forests grow in stands of one kind of tree, drawn close and overlapping.
 //   3: a title in a framed box and a compass rose.
 //   4: a scale bar.
-export const GENERATOR_VERSION = 4;
+//   5: mountains massed into overlapping ranges, bigger where the ground is higher.
+export const GENERATOR_VERSION = 5;
 
 // How the map's frame is drawn. Only the drawing changes, not the map, so this is not part
 // of the generator version.
 export const BORDERS = ["classic", "chequered", "ornate", "plain"] as const;
 export type Border = (typeof BORDERS)[number];
+
+// How the sea is drawn along the coast: ripple lines following the shore, or a second fine
+// shore line with stippled dots fading out to sea. Drawing only, like the border.
+export const COASTS = ["ripples", "stipple"] as const;
+export type Coast = (typeof COASTS)[number];
 
 export interface MapSettings {
   v: number;
@@ -26,6 +32,7 @@ export interface MapSettings {
   forest_density: number; // used from milestone 4
   town_count: number; // used from milestone 5
   border: Border; // frame style
+  coast: Coast; // how the sea is drawn along the shore
 }
 
 export const DEFAULT_SETTINGS: MapSettings = {
@@ -39,6 +46,7 @@ export const DEFAULT_SETTINGS: MapSettings = {
   forest_density: 0.6,
   town_count: 5,
   border: "classic",
+  coast: "ripples",
 };
 
 export const LIMITS = {
@@ -67,5 +75,6 @@ export function cleanSettings(s: Partial<MapSettings>): MapSettings {
     forest_density: clamp(s.forest_density, [0, 1], d.forest_density),
     town_count: Math.round(clamp(s.town_count, [0, 30], d.town_count)),
     border: BORDERS.includes(s.border as Border) ? (s.border as Border) : d.border,
+    coast: COASTS.includes(s.coast as Coast) ? (s.coast as Coast) : d.coast,
   };
 }

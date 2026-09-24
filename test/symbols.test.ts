@@ -4,7 +4,7 @@ import { outlines, simplify } from "../src/gen/contours";
 import { WATER_SEA } from "../src/gen/hydrology";
 import { generate } from "../src/gen/pipeline";
 import { DEFAULT_SETTINGS } from "../src/gen/settings";
-import { MAX_OVERLAP, MAX_TREE_OVERLAP, overlapShare, type PlacedSymbol } from "../src/gen/symbols";
+import { MAX_MOUNTAIN_OVERLAP, MAX_OVERLAP, MAX_TREE_OVERLAP, overlapLimit, overlapShare, type PlacedSymbol } from "../src/gen/symbols";
 import { toInkSet } from "../src/gen/inkset";
 import { renderSvg } from "../src/gen/svg";
 
@@ -54,29 +54,58 @@ describe("symbols", () => {
   });
 
   // Spec acceptance: no two symbols overlap by more than 20%. Steven asked for forests of
-  // overlapping trees, so from generator version 2 a tree may overlap another tree more.
+  // overlapping trees (generator version 2) and massed mountain ranges and hills (version 5),
+  // so those pairs may overlap more (see overlapLimit); every other pair keeps 20%.
   const isTree = (s: PlacedSymbol) => s.role === "conifer" || s.role === "broadleaf";
   const worstOverlaps = (symbols: PlacedSymbol[]) => {
     const s = [...symbols].sort((a, b) => a.x - a.w / 2 - (b.x - b.w / 2));
     let trees = 0;
+    let mountains = 0;
     let other = 0;
+    let hills = 0; // the most any pair involving a hill goes over its own limit
     for (let i = 0; i < s.length; i++) {
       for (let j = i + 1; j < s.length && s[j].x - s[j].w / 2 < s[i].x + s[i].w / 2; j++) {
         const o = overlapShare(s[i], s[j]);
         if (isTree(s[i]) && isTree(s[j])) trees = Math.max(trees, o);
+        else if (s[i].role === "mountain" && s[j].role === "mountain") mountains = Math.max(mountains, o);
+        else if (s[i].role === "hill" || s[j].role === "hill") hills = Math.max(hills, o - overlapLimit(s[i].role, s[j].role, 5));
         else other = Math.max(other, o);
       }
     }
-    return { trees, other };
+    return { trees, mountains, hills, other };
   };
 
-  it("never overlaps two symbols by more than 20%, except tree on tree (spec acceptance)", () => {
+  it("never overlaps two symbols by more than 20%, except tree on tree and mountain on mountain (spec acceptance)", () => {
     for (const m of maps) {
       const w = worstOverlaps(m.symbols);
       expect(w.other).toBeLessThanOrEqual(MAX_OVERLAP);
       expect(w.trees).toBeLessThanOrEqual(MAX_TREE_OVERLAP);
+      expect(w.mountains).toBeLessThanOrEqual(MAX_MOUNTAIN_OVERLAP);
+      expect(w.hills).toBeLessThanOrEqual(1e-9);
       expect(w.trees).toBeGreaterThan(MAX_OVERLAP); // forests really do overlap now
     }
+    // Ranges overlap on at least some maps (not every test map has mountains close together).
+    expect(Math.max(...maps.map((m) => worstOverlaps(m.symbols).mountains))).toBeGreaterThan(MAX_OVERLAP);
+    expect(overlapLimit("mountain", "mountain", 4)).toBe(MAX_OVERLAP);
+    expect(overlapLimit("mountain", "conifer", 5)).toBe(MAX_OVERLAP);
+    expect(overlapLimit("hill", "hill", 5)).toBeGreaterThan(MAX_OVERLAP);
+    expect(overlapLimit("hill", "conifer", 5)).toBe(MAX_OVERLAP);
+  });
+
+  it("masses mountains into ranges, bigger on higher ground (generator version 5)", () => {
+    const seed = 482913;
+    const count = (v: number) => generate({ ...DEFAULT_SETTINGS, seed, v }).symbols.filter((s) => s.role === "mountain");
+    const v4 = count(4);
+    const v5 = count(5);
+    expect(v5.length).toBeGreaterThan(v4.length * 1.5);
+    // Bigger peaks where the ground is higher: the tallest third stands higher than the rest.
+    const m = generate({ ...DEFAULT_SETTINGS, seed, v: 5 });
+    const { cols, rows } = m.water;
+    const height = (s: PlacedSymbol) => m.climate.elevation[Math.min(rows - 1, Math.floor((s.y / m.settings.height) * rows)) * cols + Math.min(cols - 1, Math.floor((s.x / m.settings.width) * cols))];
+    const sorted = [...v5].sort((a, b) => b.w - a.w);
+    const third = Math.floor(sorted.length / 3);
+    const mean = (list: PlacedSymbol[]) => list.reduce((n, s) => n + height(s), 0) / list.length;
+    expect(mean(sorted.slice(0, third))).toBeGreaterThan(mean(sorted.slice(-third)));
   });
 
   it("keeps the first generator's 20% rule for trees on version 1 links", () => {

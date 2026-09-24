@@ -10,7 +10,7 @@ import { extname, join, normalize } from "node:path";
 const PORT = Number(process.env.E2E_PORT ?? 8810);
 const ROOT = normalize(join(import.meta.dirname, "..", "public"));
 const TYPES = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".json": "application/json", ".woff2": "font/woff2", ".svg": "image/svg+xml", ".png": "image/png", ".map": "application/json", ".txt": "text/plain" };
-const ROLES = ["mountain", "hill", "conifer", "broadleaf", "reeds", "grass", "dune", "cactus", "snow", "village", "town", "capital", "landmark", "bridge", "emblem"];
+const ROLES = ["mountain", "hill", "conifer", "broadleaf", "reeds", "grass", "dune", "cactus", "snow", "village", "town", "capital", "landmark", "bridge", "emblem", "sea-monsters"];
 
 // A hollow drawing: an outline ring 400 by 300 units, with a notch that differs per drawing
 // so each drawing is distinguishable. The middle is empty, like a real traced drawing.
@@ -36,8 +36,8 @@ const send = (res, status, body, type = "application/json") => {
 createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
   const path = decodeURIComponent(url.pathname);
-  if (path === "/api/packs/manifest.json") return send(res, 200, { built: "test", packs: Object.fromEntries(ROLES.map((r) => [r, `${r}-v1.json`])) });
-  const m = /^\/api\/packs\/([a-z]+)-v1\.json$/.exec(path);
+  if (path === "/api/packs/manifest.json") return send(res, 200, { built: "test", packs: Object.fromEntries(ROLES.map((r) => [r, `${r}-v1.json`])), titles: { "sea-monsters": "sea monsters" } });
+  const m = /^\/api\/packs\/([a-z][a-z-]*)-v1\.json$/.exec(path);
   if (m && ROLES.includes(m[1])) return send(res, 200, pack(m[1]));
   if (path === "/api/gallery") return req.method === "POST" ? send(res, 201, { id: "000000000000" }) : send(res, 200, { maps: [], next: null });
   if (path.startsWith("/api/")) return send(res, 404, { error: "not found" });

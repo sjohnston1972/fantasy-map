@@ -19,7 +19,7 @@ export interface GalleryEntry {
 }
 
 // Matches the settings code written by src/app/share.ts.
-const CODE = /^\d{1,3}\.[0-9a-z]{1,7}\.(p|l|\d{3,4}x\d{3,4})\.\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,2}(\.[ckop])?$/;
+const CODE = /^\d{1,3}\.[0-9a-z]{1,7}\.(p|l|\d{3,4}x\d{3,4})\.\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,2}(\.[ckop]s?)?$/;
 const EDITS = /^[A-Za-z0-9_-]{0,20000}$/;
 export const MAX_THUMB = 120 * 1024;
 const MAX_BODY = 200 * 1024;

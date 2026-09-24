@@ -15,19 +15,24 @@ describe("share links (spec: share link rebuilds the identical map in another br
 
   it("packs the settings into a short code", () => {
     const code = encodeSettings(settings);
-    expect(code).toBe("4.acm9.l.42.70.25.9");
-    expect(encodeSettings(DEFAULT_SETTINGS)).toBe("4.acm9.p.35.50.60.5");
+    expect(code).toBe("5.acm9.l.42.70.25.9");
+    expect(encodeSettings(DEFAULT_SETTINGS)).toBe("5.acm9.p.35.50.60.5");
     // The border is added only when it is not the classic one, so older links are unchanged.
-    expect(encodeSettings({ ...DEFAULT_SETTINGS, border: "chequered" })).toBe("4.acm9.p.35.50.60.5.k");
-    expect(decodeSettings("4.acm9.p.35.50.60.5.o")?.settings.border).toBe("ornate");
-    expect(decodeSettings("4.acm9.p.35.50.60.5")?.settings.border).toBe("classic");
-    expect(decodeSettings("4.acm9.p.35.50.60.5.x")?.settings.border).toBe("classic");
+    expect(encodeSettings({ ...DEFAULT_SETTINGS, border: "chequered" })).toBe("5.acm9.p.35.50.60.5.k");
+    expect(decodeSettings("5.acm9.p.35.50.60.5.o")?.settings.border).toBe("ornate");
+    expect(decodeSettings("5.acm9.p.35.50.60.5")?.settings.border).toBe("classic");
+    expect(decodeSettings("5.acm9.p.35.50.60.5.x")?.settings.border).toBe("classic");
+    // The coast style rides in the same field: s after the border letter.
+    expect(encodeSettings({ ...DEFAULT_SETTINGS, coast: "stipple" })).toBe("5.acm9.p.35.50.60.5.cs");
+    expect(encodeSettings({ ...DEFAULT_SETTINGS, border: "ornate", coast: "stipple" })).toBe("5.acm9.p.35.50.60.5.os");
+    expect(decodeSettings("5.acm9.p.35.50.60.5.ks")?.settings).toMatchObject({ border: "chequered", coast: "stipple" });
+    expect(decodeSettings("5.acm9.p.35.50.60.5.k")?.settings.coast).toBe("ripples");
     expect(code.length).toBeLessThan(30);
     expect(encodeURIComponent(code)).toBe(code); // safe in a URL as it is
   });
 
   it("reads a code back to exactly the same settings", () => {
-    expect(decodeSettings(encodeSettings(settings))).toEqual({ settings, version: 4 });
+    expect(decodeSettings(encodeSettings(settings))).toEqual({ settings, version: 5 });
     // A link made before version 2 keeps version 1, so it draws the map it always did.
     expect(decodeSettings("1.acm9.l.42.70.25.9")?.settings).toEqual({ ...settings, v: 1 });
     // A link from a newer version than this page knows is drawn with the newest it has.
@@ -118,6 +123,9 @@ describe("edits in share links", () => {
     const raw = JSON.stringify({ a: { a1: ["mountain", 10, 20, 9999, 30, 0.5, 1], a2: ["<script>", 1, 1, 10, 10, 0.5, 0], a3: ["hill", "x", 1, 10, 10, 0.5, 0], s4: ["hill", 1, 1, 10, 10, 0.5, 0] } });
     const packed = new Uint8Array(await new Response(new Blob([raw]).stream().pipeThrough(new CompressionStream("deflate-raw"))).arrayBuffer());
     expect((await decodeEdits(Buffer.from(packed).toString("base64url")))?.added).toEqual({ "add:1": { role: "mountain", x: 10, y: 20, w: 600, h: 30, variant: 0.5, flip: true } });
+    // Kinds from the library have hyphenated names, and must survive a link too.
+    const lib = new Uint8Array(await new Response(new Blob([JSON.stringify({ a: { a1: ["sea-monsters-and-serpents", 10, 20, 30, 30, 0.5, 0] } })]).stream().pipeThrough(new CompressionStream("deflate-raw"))).arrayBuffer());
+    expect((await decodeEdits(Buffer.from(lib).toString("base64url")))?.added["add:1"]?.role).toBe("sea-monsters-and-serpents");
   });
 
   it("drops unknown keys and clamps odd values", async () => {
