@@ -6,13 +6,14 @@ import { renderRelief } from "../gen/render";
 import { toInkSet, type InkSet, type InkSymbol } from "../gen/inkset";
 import { addedNameLayout, asDrawing, drawingOf, drawnBoxOf, frameFor, layerOrder, renderItems, renderSvg } from "../gen/svg";
 import { cultureAt, Namer, titleOptions } from "../gen/names";
+import { SEA_ROLES } from "../gen/sea";
 import { rng, stageSeed } from "../gen/rng";
 import { addSymbol, applyEdits, changedKeys, editCount, isSymbolKey, layer, move, NO_EDITS, remove, rename, resize, swap, type AddedSymbol, type EditedMap, type Edits, type LayerMove } from "../gen/edits";
 import { embeddedFontCss, pngSize, saveBlob, svgToPng, svgToThumb, toBase64 } from "./export";
 import { saveMyMap } from "./mymaps";
 import { drawnBox, MapZoom, MAX_ZOOM, previewTransform, type View } from "./zoom";
 import { makeSprites, SPRITE_MAX_ZOOM } from "./sprites";
-import type { Sprite } from "../gen/svg";
+import type { SeaStyle, Sprite } from "../gen/svg";
 import { decodeEdits, decodeSettings, encodeEdits, encodeSettings, fingerprint } from "./share";
 import { randomSeed } from "../gen/rng";
 import { cleanSettings, DEFAULT_SETTINGS, GENERATOR_VERSION, type Border, type Coast, type MapSettings } from "../gen/settings";
@@ -30,6 +31,13 @@ const els = {
   shape: $<HTMLSelectElement>("#shape"),
   border: $<HTMLSelectElement>("#border"),
   coast: $<HTMLSelectElement>("#coast"),
+  seaLife: $<HTMLInputElement>("#sea-life"),
+  seaLifeOut: $<HTMLOutputElement>("#sea-life-out"),
+  waves: $<HTMLInputElement>("#waves"),
+  wavesOut: $<HTMLOutputElement>("#waves-out"),
+  compassLines: $<HTMLInputElement>("#compass-lines"),
+  shallows: $<HTMLInputElement>("#shallows"),
+  deltas: $<HTMLInputElement>("#deltas"),
   suggest: $<HTMLButtonElement>("#suggest"),
   sea: $<HTMLInputElement>("#sea"),
   seaOut: $<HTMLOutputElement>("#sea-out"),
@@ -135,7 +143,7 @@ void loadInk();
 // The library has many more kinds of drawing than a generated map uses (ships, beasts, and
 // so on, placed from Add symbols). Only the kinds the generator draws with load at the
 // start; any other kind loads when a map's added symbols use it or the palette opens it.
-const CORE_KINDS = new Set(["mountain", "hill", "conifer", "broadleaf", "reeds", "dune", "cactus", "snow", "grass", "field", "village", "town", "capital", "landmark", "bridge", "emblem"]);
+const CORE_KINDS = new Set(["mountain", "hill", "conifer", "broadleaf", "reeds", "dune", "cactus", "snow", "grass", "field", "village", "town", "capital", "landmark", "bridge", "emblem", ...SEA_ROLES]);
 let manifest: { packs: Record<string, string>; titles?: Record<string, string> } | null = null;
 const loading = new Map<string, Promise<void>>();
 
@@ -189,7 +197,7 @@ els.form.addEventListener("submit", (e) => {
 // The shape redraws as it changes, sliders when let go; the seed redraws on Enter or Generate.
 // Making a map takes a second or two, so dragging a slider only updates its number; the map
 // is made again once the slider is let go (or moved with the keyboard).
-for (const input of [els.sea, els.mountains, els.forest, els.towns]) {
+for (const input of [els.sea, els.mountains, els.forest, els.towns, els.seaLife]) {
   input.addEventListener("input", showSliderValues);
   input.addEventListener("change", () => (readForm(), draw()));
 }
@@ -198,18 +206,30 @@ function showSliderValues() {
   els.mountainsOut.value = `${els.mountains.value}%`;
   els.forestOut.value = `${els.forest.value}%`;
   els.townsOut.value = els.towns.value;
+  els.seaLifeOut.value = `${els.seaLife.value}%`;
+  els.wavesOut.value = `${els.waves.value}%`;
 }
 els.shape.addEventListener("change", () => (readForm(), draw()));
 // The border and coast styles change only the drawing, so the map is redrawn, not generated
 // again (and its edits and generator version stay as they are).
-for (const select of [els.border, els.coast])
-  select.addEventListener("change", () => {
-    settings = cleanSettings({ ...settings, border: els.border.value as Border, coast: els.coast.value as Coast });
+// So do the wave marks, compass lines, shallows and deltas.
+for (const control of [els.border, els.coast, els.waves, els.compassLines, els.shallows, els.deltas])
+  control.addEventListener("change", () => {
+    const style = {
+      border: els.border.value as Border,
+      coast: els.coast.value as Coast,
+      waves: Number(els.waves.value) / 100,
+      compass_lines: els.compassLines.checked,
+      shallows: els.shallows.checked,
+      deltas: els.deltas.checked,
+    };
+    settings = cleanSettings({ ...settings, ...style });
     if (!current) return;
-    current = { ...current, settings: { ...current.settings, border: settings.border, coast: settings.coast } };
+    current = { ...current, settings: { ...current.settings, ...style } };
     paint(current);
     void updateLink();
   });
+els.waves.addEventListener("input", showSliderValues);
 els.showRelief.addEventListener("change", () => current && paintRelief(current));
 
 function readForm() {
@@ -225,6 +245,7 @@ function readForm() {
     mountain_density: Number(els.mountains.value) / 100,
     forest_density: Number(els.forest.value) / 100,
     town_count: Number(els.towns.value),
+    sea_life: Number(els.seaLife.value) / 100,
   });
   syncForm();
 }
@@ -242,6 +263,13 @@ function syncForm() {
   els.forestOut.value = `${els.forest.value}%`;
   els.towns.value = String(settings.town_count);
   els.townsOut.value = els.towns.value;
+  els.seaLife.value = String(Math.round(settings.sea_life * 100));
+  els.seaLifeOut.value = `${els.seaLife.value}%`;
+  els.waves.value = String(Math.round(settings.waves * 100));
+  els.wavesOut.value = `${els.waves.value}%`;
+  els.compassLines.checked = settings.compass_lines;
+  els.shallows.checked = settings.shallows;
+  els.deltas.checked = settings.deltas;
 }
 
 function draw() {
@@ -296,7 +324,16 @@ async function buildSprites() {
 
 function svgFor(map: EditedMap, fontCss?: string, onScreen = false): string {
   const { width, height } = map.settings;
-  return renderSvg({ width, height, water: map.water, symbols: map.symbols, towns: map.towns, labels: map.labels, ink, fontCss, border: map.settings.border, coast: map.settings.coast, sprites: onScreen && spritesWanted() ? sprites : undefined });
+  return renderSvg({ width, height, water: map.water, symbols: map.symbols, towns: map.towns, labels: map.labels, ink, fontCss, border: map.settings.border, coast: map.settings.coast, sea: seaStyle(map.settings), sprites: onScreen && spritesWanted() ? sprites : undefined });
+}
+
+// The sea's drawing options. Compass lines radiate from where the compass rose was first
+// placed (moving the rose later leaves them be), and from two fainter wind roses.
+function seaStyle(s: MapSettings): SeaStyle {
+  const { width: W, height: H } = s;
+  const rose = current?.labels.labels.find((l) => l.kind === "compass");
+  const roses: [number, number][] = [rose ? [rose.x, rose.y] : [W * 0.5, H * 0.5], [W * 0.22, H * 0.72], [W * 0.8, H * 0.35]];
+  return { waves: s.waves, compassLines: s.compass_lines, shallows: s.shallows, deltas: s.deltas, roses };
 }
 
 function paint(map: GeneratedMap) {

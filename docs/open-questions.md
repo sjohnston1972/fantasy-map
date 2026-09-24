@@ -467,3 +467,31 @@ can only be reopened by dropping its file again on the Import page.
 - **Fix:** a long hint (for example "184 items picked...") widened the column above the map
   and stretched the map's box, so drags and picking drifted by about 2%. The bar now never
   widens the map; long hints are cut short.
+
+## Generator version 6: the sea, and land off the frame; hand-drawn lines
+
+- **Land never meets the frame** (Steven: an island "conforming to the edge of the page
+  boundary"). From version 6 the ground sinks strongly and unevenly along the edges and
+  hard in the last 5%, so every coast curves round inside open sea. A test checks no land
+  lies within 3% of the edge.
+- **Sea options** (Steven asked for all of them, "optional and adjustable"), in a Sea group
+  in the settings:
+  - *Ships and sea life* (0 to 100%, part of the map, version 6): ships in open water, sea
+    creatures far out, lighthouses on headlands, rocks and reefs just offshore, drawn with
+    the library kinds ships-and-boats, sea-creatures, lighthouses-and-beacons and
+    rocks-and-reefs. Up to 6, 3, 3 and 12 at 100%. Editable like any symbol.
+  - *Wave marks* (0 to 100%), *Compass lines*, *Shallows*, *River deltas*: drawing only, so
+    they switch without making the map again and keep edits. Compass lines radiate from the
+    compass rose's first position and two fainter wind roses; shallows are a dotted depth
+    line and light stippling where the sea floor is within the top 7% of its depth range;
+    deltas fan out at the mouths of the six largest rivers.
+  - Share code: the style field gains l (compass lines), h (shallows), d (deltas); two more
+    fields give waves and sea life in per cent (`6.acm9.p.35.50.60.5.clhd.30.40`). Missing
+    fields read as off, so older links look as they did.
+  - Open: which drawings count as "sea creatures" depends on the imported sheets (some rows
+    mix in fish or shore animals); the Library page could be used to prune them.
+- **Hand-drawn lines** (Steven: coastlines, rivers and trails "too obviously made of
+  completely straight lines in parts"): coasts and lake shores are cut into short steps and
+  wavered by a smooth position-based noise (so ripple lines stay parallel to their coast);
+  rivers and roads also drift gently from side to side, fading out at river mouths so they
+  still meet the shore. Drawing only, for every map; the "map check" codes changed again.

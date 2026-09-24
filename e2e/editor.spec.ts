@@ -82,9 +82,9 @@ const picked = (page: Page) => page.locator("#map .selected").evaluateAll((els) 
 test.describe("everywhere", () => {
   test("draws the same map in every browser (share links rebuild it exactly)", async ({ page }) => {
     await open(page);
-    await expect(page.locator("#caption")).toContainText("Map check z0m9d9");
+    await expect(page.locator("#caption")).toContainText("Map check chb0e8");
     await open(page, "/?map=1.acm9.p.35.50.60.5");
-    await expect(page.locator("#caption")).toContainText("Map check u2ezz3");
+    await expect(page.locator("#caption")).toContainText("Map check xdqnrc");
   });
 
   test("keeps the map its own shape whatever the hint says", async ({ page }) => {
@@ -457,6 +457,21 @@ test.describe("editing with a mouse", () => {
     expect(await page.locator("#map image").count()).toBe(0);
     await page.locator("#zoom-fit").click();
     await page.waitForFunction(() => document.querySelectorAll("#map image").length > 100);
+  });
+
+  test("the sea options redraw the sea without making a new map, and go into the link", async ({ page }) => {
+    await open(page, "/?map=6.acm9.p.35.50.60.5");
+    const caption = await page.locator("#caption").textContent();
+    const paths = () => page.evaluate(() => document.querySelector("#map svg")!.innerHTML.length);
+    const before = await paths();
+    await page.locator("#compass-lines").check();
+    await page.locator("#shallows").check();
+    await page.locator("#deltas").check();
+    await expect(page).toHaveURL(/map=6.acm9.p.35.50.60.5.clhd/);
+    expect(await paths()).toBeGreaterThan(before);
+    expect(await page.locator("#caption").textContent()).toBe(caption); // not made again
+    await page.locator("#compass-lines").uncheck();
+    await expect(page).toHaveURL(/.chd/);
   });
 
   test("saves SVG and PNG files", async ({ page }) => {

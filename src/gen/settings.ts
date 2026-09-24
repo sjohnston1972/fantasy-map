@@ -9,7 +9,8 @@
 //   3: a title in a framed box and a compass rose.
 //   4: a scale bar.
 //   5: mountains massed into overlapping ranges, bigger where the ground is higher.
-export const GENERATOR_VERSION = 5;
+//   6: land never meets the frame; ships, sea creatures, lighthouses and reefs.
+export const GENERATOR_VERSION = 6;
 
 // How the map's frame is drawn. Only the drawing changes, not the map, so this is not part
 // of the generator version.
@@ -33,6 +34,12 @@ export interface MapSettings {
   town_count: number; // used from milestone 5
   border: Border; // frame style
   coast: Coast; // how the sea is drawn along the shore
+  sea_life: number; // 0 to 1: ships, sea creatures, lighthouses and reefs (generator version 6)
+  // How the sea is drawn (drawing only, like the border):
+  waves: number; // 0 to 1: how thick the wave marks in open sea are
+  compass_lines: boolean; // lines radiating across the sea, as on old sea charts
+  shallows: boolean; // a dotted depth line and light stippling over shallow water
+  deltas: boolean; // channels fanning out where rivers meet the sea
 }
 
 export const DEFAULT_SETTINGS: MapSettings = {
@@ -47,6 +54,11 @@ export const DEFAULT_SETTINGS: MapSettings = {
   town_count: 5,
   border: "classic",
   coast: "ripples",
+  sea_life: 0.4,
+  waves: 0.3,
+  compass_lines: true,
+  shallows: true,
+  deltas: true,
 };
 
 export const LIMITS = {
@@ -76,5 +88,10 @@ export function cleanSettings(s: Partial<MapSettings>): MapSettings {
     town_count: Math.round(clamp(s.town_count, [0, 30], d.town_count)),
     border: BORDERS.includes(s.border as Border) ? (s.border as Border) : d.border,
     coast: COASTS.includes(s.coast as Coast) ? (s.coast as Coast) : d.coast,
+    sea_life: clamp(s.sea_life, [0, 1], d.sea_life),
+    waves: clamp(s.waves, [0, 1], d.waves),
+    compass_lines: typeof s.compass_lines === "boolean" ? s.compass_lines : d.compass_lines,
+    shallows: typeof s.shallows === "boolean" ? s.shallows : d.shallows,
+    deltas: typeof s.deltas === "boolean" ? s.deltas : d.deltas,
   };
 }

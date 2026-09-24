@@ -23,6 +23,16 @@ export interface SvgInput {
   border?: Border; // frame style (classic when left out)
   coast?: Coast; // how the sea is drawn along the shore (ripples when left out)
   sprites?: Map<string, Sprite>; // pre-drawn pictures of drawings, for the map on screen only
+  sea?: SeaStyle; // extra ways of drawing the sea (all off when left out)
+}
+
+// How the sea is drawn beyond its coast (drawing only; see MapSettings).
+export interface SeaStyle {
+  waves: number; // 0 to 1: how thick the wave marks in open sea are
+  compassLines: boolean; // lines radiating across the sea from wind roses
+  shallows: boolean; // a dotted depth line and light stippling over shallow water
+  deltas: boolean; // channels fanning out where rivers meet the sea
+  roses?: [number, number][]; // where the compass lines radiate from (the compass rose first)
 }
 
 // A drawing pre-drawn as a picture (see src/app/sprites.ts): its address, and the room
@@ -37,7 +47,7 @@ const INK = "#1a1714";
 
 // The ground (sea ripples, coast, lakes, rivers, roads) takes most of the drawing time and
 // never changes while a map is edited, so it is drawn once per map and reused.
-const baseCache = new WeakMap<Hydrology, { roads: unknown; coast: Coast; svg: string }>();
+const baseCache = new WeakMap<Hydrology, { roads: unknown; coast: Coast; sea: string; svg: string }>();
 
 // Stand-in variant for items whose drawing is chosen by position (towns, landmarks,
 // bridges): the same place always gets the same drawing, unless the user swaps it.
@@ -82,10 +92,11 @@ export function renderSvg(m: SvgInput): string {
   const cached = baseCache.get(hy);
   const roads = m.towns?.roads ?? null;
   const coast = m.coast ?? "ripples";
-  let base = cached && cached.roads === roads && cached.coast === coast ? cached.svg : "";
+  const sea = JSON.stringify(m.sea ?? null);
+  let base = cached && cached.roads === roads && cached.coast === coast && cached.sea === sea ? cached.svg : "";
   if (!base) {
-    base = renderBase(W, H, hy, m.towns, coast);
-    baseCache.set(hy, { roads, coast, svg: base });
+    base = renderBase(W, H, hy, m.towns, coast, m.sea);
+    baseCache.set(hy, { roads, coast, sea, svg: base });
   }
   parts.push(base);
 
@@ -411,14 +422,19 @@ function frameMarkup(fr: Frame, border: Border, px: number): string {
 }
 
 // Sea ripples, land, lakes, rivers and roads.
-function renderBase(W: number, H: number, hy: Hydrology, towns?: Settlements, coast: Coast = "ripples"): string {
+function renderBase(W: number, H: number, hy: Hydrology, towns?: Settlements, coast: Coast = "ripples", sea?: SeaStyle): string {
   const sx = W / hy.cols;
   const sy = H / hy.rows;
   const px = W / 1600;
-  const toMap = (loop: Pt[]): Pt[] => loop.map(([x, y]) => [x * sx, y * sy]);
+  // Outlines traced from the grid, in map pixels, with a hand-drawn waver (see waver below).
+  const toMap = (loop: Pt[]): Pt[] => waver(loop.map(([x, y]) => [x * sx, y * sy] as Pt), true, 1.6 * px);
   const parts: string[] = [];
 
   const seaDist = distanceFrom(hy, (i) => hy.water[i] !== WATER_SEA);
+  // Sea features drawn before the land, whose white fill then covers anything straying onto it.
+  if (sea?.compassLines) parts.push(compassLines(W, H, px, sea.roses ?? []));
+  if (sea?.shallows) parts.push(shallows(hy, sx, sy, px, toMap));
+  if (sea && sea.waves > 0) parts.push(waveMarks(hy, sx, sy, px, seaDist, sea.waves));
   if (coast === "stipple") {
     // A second, fine shore line just offshore, and stippled dots fading out to sea.
     const offshore = outlines(hy.cols, hy.rows, (i) => hy.water[i] !== WATER_SEA || seaDist[i] <= 1).map((l) => toMap(smoothLoop(l, 3)));
@@ -455,6 +471,7 @@ function renderBase(W: number, H: number, hy: Hydrology, towns?: Settlements, co
   for (const r of hy.rivers) {
     let pts = r.cells.map((i) => [((i % hy.cols) + 0.5) * sx, (Math.floor(i / hy.cols) + 0.5) * sy] as Pt);
     for (let k = 0; k < 3; k++) pts = smoothLine(pts); // three passes hide the grid's staircase
+    pts = waver(drift(pts, 7 * px, 70 * px, r.end === "sea" || r.end === "lake" ? 30 * px : 0), false, 1.6 * px);
     const widths = pts.map((_, k) => {
       const f = r.flow[Math.min(r.flow.length - 1, Math.floor((k / pts.length) * r.flow.length))];
       return Math.min(2.6, 0.6 + 0.3 * Math.log2(Math.max(1, f / minFlow))) * px;
@@ -462,12 +479,14 @@ function renderBase(W: number, H: number, hy: Hydrology, towns?: Settlements, co
     parts.push(`<path d="${ribbon(pts, widths)}"/>`);
   }
   parts.push(`</g>`);
+  if (sea?.deltas) parts.push(deltas(hy, sx, sy, px));
 
   // Roads: dashed lines.
   if (towns) {
     const roadPaths = towns.roads.map((road) => {
       let pts = road.cells.map((i) => [((i % hy.cols) + 0.5) * sx, (Math.floor(i / hy.cols) + 0.5) * sy] as Pt);
       for (let k = 0; k < 3; k++) pts = smoothLine(pts);
+      pts = waver(drift(pts, 4 * px, 80 * px, 0), false, 1.2 * px);
       return "M" + simplify(pts, 0.3).map(([x, y]) => `${x.toFixed(1)} ${y.toFixed(1)}`).join("L");
     });
     parts.push(`<path d="${roadPaths.join("")}" fill="none" stroke="${INK}" stroke-width="${(1.9 * px).toFixed(2)}" stroke-dasharray="${(7 * px).toFixed(1)} ${(4.5 * px).toFixed(1)}" stroke-linecap="round"/>`);
@@ -564,6 +583,151 @@ function placeholder(s: PlacedSymbol, k: number, key: string): string {
       // Any other kind (an added town, banner or landmark before its drawings load): a ringed dot.
       return g(`<circle cx="${n(x)}" cy="${n(y - h / 2)}" r="${n(Math.min(w, h) / 3)}" fill="#fff" stroke-width="1"/><circle cx="${n(x)}" cy="${n(y - h / 2)}" r="${n(Math.min(w, h) / 8)}" fill="#1a1714" stroke="none"/>`);
   }
+}
+
+// A hand-drawn waver. Lines traced from the map's grid (coasts, rivers, roads) keep long,
+// perfectly straight stretches even after smoothing. Here every line is cut into short steps
+// and each point is nudged by a smooth noise field that depends only on where it is, so
+// neighbouring lines (a coast and its ripple lines) waver together and stay parallel.
+function waver(pts: Pt[], closed: boolean, amount: number): Pt[] {
+  if (pts.length < 2) return pts;
+  const step = 4 * (amount / 1.6); // about 4 map pixels between points on a 1600-pixel map
+  const out: Pt[] = [];
+  const n = closed ? pts.length : pts.length - 1;
+  for (let i = 0; i < n; i++) {
+    const [x0, y0] = pts[i];
+    const [x1, y1] = pts[(i + 1) % pts.length];
+    const parts = Math.max(1, Math.ceil(Math.hypot(x1 - x0, y1 - y0) / step));
+    for (let k = 0; k < parts; k++) out.push(nudge(x0 + ((x1 - x0) * k) / parts, y0 + ((y1 - y0) * k) / parts, amount));
+  }
+  if (!closed) out.push(nudge(pts[pts.length - 1][0], pts[pts.length - 1][1], amount));
+  return out;
+}
+
+// Drift: shift every point of a line by a smooth field that depends only on where it is, up
+// to `amount`, with bends about `scale` apart. A long straight run through the field picks up
+// gentle bends, and two lines through the same spot shift alike, so rivers still meet where
+// they join. `fadeEnd`: over this last stretch the drift fades out, so a river still reaches
+// the shore it runs into.
+function drift(pts: Pt[], amount: number, scale: number, fadeEnd: number): Pt[] {
+  let left = 0;
+  const out: Pt[] = new Array(pts.length);
+  for (let i = pts.length - 1; i >= 0; i--) {
+    if (i < pts.length - 1) left += Math.hypot(pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1]);
+    const [x, y] = pts[i];
+    const f = fadeEnd > 0 ? Math.min(1, left / fadeEnd) : 1;
+    const dx = (valueNoise(x / scale + 11, y / scale) + valueNoise(x / (scale * 0.4) + 40, y / (scale * 0.4)) * 0.4) * amount * f;
+    const dy = (valueNoise(x / scale + 70, y / scale + 3) + valueNoise(x / (scale * 0.4) + 90, y / (scale * 0.4) + 7) * 0.4) * amount * f;
+    out[i] = [x + dx, y + dy];
+  }
+  return out;
+}
+
+function nudge(x: number, y: number, amount: number): Pt {
+  const f = amount / 1.6; // the noise scales with the map, like the line widths
+  const n = (ox: number) => valueNoise(x / (30 * f) + ox, y / (30 * f)) * 0.75 + valueNoise(x / (10 * f) + ox + 50, y / (10 * f)) * 0.35;
+  return [x + n(0) * amount, y + n(200) * amount];
+}
+
+// Smooth noise from -1 to 1: random values at whole-number points, blended between them.
+function valueNoise(x: number, y: number): number {
+  const xi = Math.floor(x);
+  const yi = Math.floor(y);
+  const xf = x - xi;
+  const yf = y - yi;
+  const at = (a: number, b: number) => hash01(Math.imul(a, 73856093) ^ Math.imul(b, 19349663)) * 2 - 1;
+  const u = xf * xf * (3 - 2 * xf);
+  const v = yf * yf * (3 - 2 * yf);
+  const top = at(xi, yi) + (at(xi + 1, yi) - at(xi, yi)) * u;
+  const bottom = at(xi, yi + 1) + (at(xi + 1, yi + 1) - at(xi, yi + 1)) * u;
+  return top + (bottom - top) * v;
+}
+
+// A little hash of a number to 0..1, so scattered marks land in the same places every time.
+function hash01(n: number): number {
+  let h = Math.imul(n ^ 0x9e3779b9, 0x85ebca6b);
+  h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35);
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+}
+
+// Compass lines, as on old sea charts: 32 lines from the compass rose, and 16 from each other
+// wind rose, running out across the whole sea (the land is drawn over them).
+function compassLines(W: number, H: number, px: number, roses: [number, number][]): string {
+  const centres = roses.length ? roses : [[W / 2, H / 2] as [number, number]];
+  const d: string[] = [];
+  centres.forEach(([cx, cy], k) => {
+    const n = k === 0 ? 32 : 16;
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * Math.PI * 2;
+      const dx = Math.cos(a);
+      const dy = Math.sin(a);
+      // Run to the edge of the map, no further.
+      const tx = dx > 1e-9 ? (W - cx) / dx : dx < -1e-9 ? -cx / dx : Infinity;
+      const ty = dy > 1e-9 ? (H - cy) / dy : dy < -1e-9 ? -cy / dy : Infinity;
+      const t = Math.max(0, Math.min(tx, ty));
+      d.push(`M${cx.toFixed(1)} ${cy.toFixed(1)}L${(cx + dx * t).toFixed(1)} ${(cy + dy * t).toFixed(1)}`);
+    }
+  });
+  return `<path d="${d.join("")}" fill="none" stroke="${INK}" stroke-width="${(0.45 * px).toFixed(2)}" stroke-opacity="0.45"/>`;
+}
+
+// Shallow water: sea over ground that is nearly high enough to be land. Marked with a dotted
+// depth line along its edge and light stippling within.
+function shallows(hy: Hydrology, sx: number, sy: number, px: number, toMap: (loop: Pt[]) => Pt[]): string {
+  let deepest = Infinity;
+  let shore = 0;
+  for (let i = 0; i < hy.water.length; i++) {
+    if (hy.water[i] !== WATER_SEA) continue;
+    deepest = Math.min(deepest, hy.heights[i]);
+    shore = Math.max(shore, hy.heights[i]);
+  }
+  if (!(shore > deepest)) return "";
+  const shallowAt = deepest + (shore - deepest) * 0.93;
+  const shallow = (i: number) => hy.water[i] !== WATER_SEA || hy.heights[i] >= shallowAt;
+  const loops = outlines(hy.cols, hy.rows, shallow).map((l) => toMap(smoothLoop(l, 3)));
+  const line = loops.length ? `<path d="${pathOf(loops)}" fill="none" stroke="${INK}" stroke-width="${(0.9 * px).toFixed(2)}" stroke-dasharray="0 ${(3.2 * px).toFixed(1)}" stroke-linecap="round"/>` : "";
+  const dots = stipple(hy, sx, sy, px, (i) => (hy.water[i] === WATER_SEA && hy.heights[i] >= shallowAt ? 1 : Infinity), 1, 0.12);
+  return line + dots;
+}
+
+// Wave marks: small curls of line scattered through open sea, away from the coast.
+function waveMarks(hy: Hydrology, sx: number, sy: number, px: number, seaDist: Float32Array, amount: number): string {
+  const d: string[] = [];
+  const s = 3.2 * px;
+  for (let i = 0; i < hy.water.length; i++) {
+    if (hy.water[i] !== WATER_SEA || seaDist[i] < 6) continue;
+    if (hash01(i * 31 + 7) >= amount * 0.02) continue;
+    const c = i % hy.cols;
+    const r = (i - c) / hy.cols;
+    const x = (c + hash01(i * 3 + 1)) * sx;
+    const y = (r + hash01(i * 5 + 2)) * sy;
+    d.push(`M${x.toFixed(1)} ${y.toFixed(1)}q${(s * 0.8).toFixed(1)} ${(-s).toFixed(1)} ${(s * 1.6).toFixed(1)} 0t${(s * 1.6).toFixed(1)} 0`);
+  }
+  return d.length ? `<path d="${d.join("")}" fill="none" stroke="${INK}" stroke-width="${(0.8 * px).toFixed(2)}" stroke-linecap="round"/>` : "";
+}
+
+// River deltas: where one of the larger rivers meets the sea, three channels fan out into
+// the water (small streams get none, or the coast bristles with them).
+function deltas(hy: Hydrology, sx: number, sy: number, px: number): string {
+  const d: string[] = [];
+  const mouths = hy.rivers.filter((r) => r.end === "sea" && r.cells.length >= 4);
+  const flows = mouths.map((r) => r.flow[r.flow.length - 1]).sort((a, b) => b - a);
+  const big = flows[Math.min(flows.length - 1, 5)] ?? Infinity; // the six largest
+  for (const r of mouths) {
+    if (r.flow[r.flow.length - 1] < big) continue;
+    const at = (i: number) => [((i % hy.cols) + 0.5) * sx, (Math.floor(i / hy.cols) + 0.5) * sy];
+    const [x1, y1] = at(r.cells[r.cells.length - 1]);
+    const [x0, y0] = at(r.cells[Math.max(0, r.cells.length - 4)]);
+    const a = Math.atan2(y1 - y0, x1 - x0);
+    const len = (10 + Math.min(8, r.flow[r.flow.length - 1] / 60)) * px;
+    for (const turn of [-0.4, 0, 0.4]) {
+      const b = a + turn;
+      const mx = x1 + Math.cos(a + turn / 2) * len * 0.5;
+      const my = y1 + Math.sin(a + turn / 2) * len * 0.5;
+      d.push(`M${x1.toFixed(1)} ${y1.toFixed(1)}Q${mx.toFixed(1)} ${my.toFixed(1)} ${(x1 + Math.cos(b) * len).toFixed(1)} ${(y1 + Math.sin(b) * len).toFixed(1)}`);
+    }
+  }
+  return d.length ? `<path d="${d.join("")}" fill="none" stroke="${INK}" stroke-width="${(0.8 * px).toFixed(2)}" stroke-linecap="round"/>` : "";
 }
 
 // Stippled dots in water near a shore: thick at the shore, thinning out to `reach` cells away.

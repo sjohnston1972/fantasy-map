@@ -58,8 +58,17 @@ export function generateHeightMap(s: MapSettings): HeightMap {
       const edge = Math.min(x, spanX - x, y, spanY - y) + 0.12 * fbm(warpY, x * 3, y * 3, 3);
       const shelf = smoothstep(0, 0.3, edge);
       const middle = 1 - Math.hypot((x - spanX / 2) / spanX, (y - spanY / 2) / spanY) * 1.6;
-      raw[r * cols + c] =
-        0.5 * land + 0.06 * hills + 0.25 * middle - 0.35 * (1 - shelf) + belt * peaks * (0.35 + 0.5 * s.mountain_density);
+      let h = 0.5 * land + 0.06 * hills + 0.25 * middle - 0.35 * (1 - shelf) + belt * peaks * (0.35 + 0.5 * s.mountain_density);
+      // From generator version 6, land never meets the frame: high ground near an edge used to
+      // run into it and be cut off in a straight line. A strong, roughened sink across a band
+      // along the edges makes the land fall away with a natural coast, and a hard one in the
+      // last stretch keeps open sea between every coast and the frame.
+      if (s.v >= 6) {
+        const edgeTrue = Math.min(x, spanX - x, y, spanY - y);
+        const fade = 1 - smoothstep(0, 0.16, edge);
+        h -= 1.3 * fade * fade + 3 * (1 - smoothstep(0, 0.05, edgeTrue));
+      }
+      raw[r * cols + c] = h;
     }
   }
   return { cols, rows, cell: CELL, heights: toSeaLevel(raw, s.sea_level), seaLevel: s.sea_level };

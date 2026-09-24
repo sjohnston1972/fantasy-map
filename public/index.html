@@ -71,6 +71,21 @@
         <input id="towns" type="range" min="1" max="15" step="1">
       </label>
 
+      <fieldset class="field sea-options">
+        <legend>Sea</legend>
+        <label class="field">
+          <span>Ships and sea life <output id="sea-life-out" for="sea-life"></output></span>
+          <input id="sea-life" type="range" min="0" max="100" step="5">
+        </label>
+        <label class="field">
+          <span>Wave marks <output id="waves-out" for="waves"></output></span>
+          <input id="waves" type="range" min="0" max="100" step="5">
+        </label>
+        <label class="check"><input id="compass-lines" type="checkbox"> Compass lines</label>
+        <label class="check"><input id="shallows" type="checkbox"> Shallows</label>
+        <label class="check"><input id="deltas" type="checkbox"> River deltas</label>
+      </fieldset>
+
       <label class="check"><input id="show-relief" type="checkbox"> Show shaded relief</label>
 
       <button type="submit" class="generate">Generate a new map</button>

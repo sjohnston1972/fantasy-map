@@ -5,6 +5,7 @@ import { climate, type Climate } from "./climate";
 import { generateHeightMap, type HeightMap } from "./heightmap";
 import { hydrology, type Hydrology } from "./hydrology";
 import { placeLabels, type Labelling } from "./labels";
+import { placeSea } from "./sea";
 import { landAndSea, type LandSea } from "./landsea";
 import { settle, type Settlements } from "./settlements";
 import { cleanSettings, type MapSettings } from "./settings";
@@ -36,7 +37,12 @@ export function generate(input: Partial<MapSettings>): GeneratedMap {
   const water = time("rivers and lakes", () => hydrology(height, landSea));
   const clim = time("climate and biomes", () => climate(water, height.seaLevel, settings));
   const towns = time("towns and roads", () => settle(water, clim, settings));
-  const placed = time("symbols", () => placeSymbols(water, clim, settings, keepClear(towns, water.cols, water.rows)));
+  const land = time("symbols", () => placeSymbols(water, clim, settings, keepClear(towns, water.cols, water.rows)));
+  // Sea life joins the land's symbols in the same back-to-front order (top of the map to the
+  // bottom), so nearer symbols overlap further ones. Maps before version 6 have none, and
+  // their order is unchanged.
+  const sea = time("sea life", () => placeSea(water, towns, land, settings));
+  const placed = sea.length ? [...land, ...sea].sort((a, b) => a.y - b.y || a.x - b.x) : land;
   const labels = time("labels", () => placeLabels(water, clim, towns, placed, settings));
   return { settings, height, landSea, water, climate: clim, towns, symbols: labels.symbols, labels, timings };
 }

@@ -12,12 +12,13 @@ import type { Hydrology } from "./hydrology";
 import { fbm, simplex } from "./noise";
 import { rng, stageSeed } from "./rng";
 import type { MapSettings } from "./settings";
+import type { SeaRole } from "./sea";
 
 export const ROLES = ["mountain", "hill", "conifer", "broadleaf", "reeds", "dune", "cactus", "grass", "snow", "field"] as const;
 export type Role = (typeof ROLES)[number];
 
 export interface PlacedSymbol {
-  role: Role;
+  role: Role | SeaRole;
   x: number; // anchor, map pixels: middle of the base
   y: number;
   w: number;

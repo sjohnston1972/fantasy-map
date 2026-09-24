@@ -11,9 +11,11 @@
 //   | seed, in base 36 to keep it short
 //   generator version (the settings' v field)
 //
-// An eighth field, only when the drawing style is not the default, gives the border style
-// (c classic, k chequered, o ornate, p plain), followed by s when the coast is stippled:
-// "k", "cs", "os".
+// An eighth field gives the drawing style: the border (c classic, k chequered, o ornate,
+// p plain) followed by any of s (stippled coast), l (compass lines), h (shallows) and
+// d (river deltas): "k", "cs", "clhd". A ninth and tenth give the wave marks and the sea
+// life in per cent. Fields left off mean the plainest setting (classic border, ripples,
+// none of the extras), which is how every link from before they existed reads.
 //
 // The sliders work in whole per cents, so the per cent values round-trip exactly and the
 // map rebuilt from a code is the same map.
@@ -29,7 +31,10 @@ const pct = (x: number) => Math.round(x * 100);
 export function encodeSettings(s: MapSettings): string {
   const shape = Object.keys(SHAPES).find((k) => SHAPES[k][0] === s.width && SHAPES[k][1] === s.height) ?? `${s.width}x${s.height}`;
   const fields = [s.v, s.seed.toString(36), shape, pct(s.sea_level), pct(s.mountain_density), pct(s.forest_density), s.town_count];
-  if (s.border !== "classic" || s.coast !== "ripples") fields.push(BORDER_CODES[s.border] + (s.coast === "stipple" ? "s" : ""));
+  const flags = (s.coast === "stipple" ? "s" : "") + (s.compass_lines ? "l" : "") + (s.shallows ? "h" : "") + (s.deltas ? "d" : "");
+  const amounts = s.waves > 0 || s.sea_life > 0;
+  if (s.border !== "classic" || flags || amounts) fields.push(BORDER_CODES[s.border] + flags);
+  if (amounts) fields.push(pct(s.waves), pct(s.sea_life));
   return fields.join(".");
 }
 
@@ -38,9 +43,10 @@ export function encodeSettings(s: MapSettings): string {
 export function decodeSettings(code: string): { settings: MapSettings; version: number } | null {
   const parts = code.trim().split(".");
   if (parts.length < 7 || !parts.every((p) => /^[0-9a-z]+$/i.test(p))) return null;
-  const [v, seed, shape, sea, mountains, forest, towns, borderCode] = parts;
+  const [v, seed, shape, sea, mountains, forest, towns, borderCode, waves, seaLife] = parts;
   const border = (Object.keys(BORDER_CODES) as Border[]).find((b) => BORDER_CODES[b] === borderCode?.[0]) ?? "classic";
-  const coast = borderCode?.[1] === "s" ? "stipple" : "ripples";
+  const flags = borderCode?.slice(1) ?? "";
+  const coast = flags.includes("s") ? "stipple" : "ripples";
   const version = Number(v);
   const size = SHAPES[shape] ?? shape.match(/^(\d+)x(\d+)$/)?.slice(1).map(Number);
   const seedNum = parseInt(seed, 36);
@@ -56,6 +62,11 @@ export function decodeSettings(code: string): { settings: MapSettings; version: 
     town_count: Number(towns),
     border,
     coast,
+    compass_lines: flags.includes("l"),
+    shallows: flags.includes("h"),
+    deltas: flags.includes("d"),
+    waves: waves ? Number(waves) / 100 : 0,
+    sea_life: seaLife ? Number(seaLife) / 100 : 0,
   });
   return { settings, version };
 }

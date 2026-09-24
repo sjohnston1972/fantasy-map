@@ -99,11 +99,20 @@ describe("light editing (spec: move, delete or swap a symbol; rename, move or de
 });
 
 describe("layering (bring forward, send back)", () => {
-  // Two overlapping mountains: a is drawn first (behind), b after it (in front).
+  // Two overlapping mountains: a is drawn first (behind), b after it (in front), and each is
+  // the other's nearest overlapping neighbour in drawing order (layering steps past exactly one).
   const pair = (() => {
-    for (let i = 0; i < map.symbols.length; i++)
-      for (let j = i + 1; j < map.symbols.length; j++)
-        if (map.symbols[i].role === "mountain" && map.symbols[j].role === "mountain" && boxesOverlap(symBox(map.symbols[i]), symBox(map.symbols[j]))) return [`sym:${i}`, `sym:${j}`];
+    const s = map.symbols;
+    const overlaps = (i: number, j: number) => boxesOverlap(symBox(s[i]), symBox(s[j]));
+    for (let i = 0; i < s.length; i++) {
+      if (s[i].role !== "mountain") continue;
+      let j = i + 1;
+      while (j < s.length && !overlaps(i, j)) j++;
+      if (j >= s.length || s[j].role !== "mountain") continue;
+      let k = j - 1;
+      while (k >= 0 && !overlaps(j, k)) k--;
+      if (k === i) return [`sym:${i}`, `sym:${j}`];
+    }
     throw new Error("no overlapping mountains");
   })();
   const [a, b] = pair;

@@ -7,6 +7,7 @@ import { DEFAULT_SETTINGS } from "../src/gen/settings";
 import { MAX_MOUNTAIN_OVERLAP, MAX_OVERLAP, MAX_TREE_OVERLAP, overlapLimit, overlapShare, type PlacedSymbol } from "../src/gen/symbols";
 import { toInkSet } from "../src/gen/inkset";
 import { renderSvg } from "../src/gen/svg";
+import { SEA_ROLES } from "../src/gen/sea";
 
 const SEEDS = [482913, 77, 2024, 5, 31337];
 const maps = SEEDS.map((seed) => generate({ ...DEFAULT_SETTINGS, seed }));
@@ -139,7 +140,7 @@ describe("symbols", () => {
     for (const m of maps) {
       const { cols, rows } = m.water;
       const onRiver = new Set(m.water.rivers.flatMap((r) => r.cells));
-      for (const s of m.symbols) {
+      for (const s of m.symbols.filter((s) => !(SEA_ROLES as readonly string[]).includes(s.role))) {
         const i = Math.floor((s.y - 1) / (m.settings.height / rows)) * cols + Math.floor(s.x / (m.settings.width / cols));
         expect(m.water.water[i]).toBe(0);
         expect(onRiver.has(i)).toBe(false);
