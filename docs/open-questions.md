@@ -272,8 +272,10 @@ can only be reopened by dropping its file again on the Import page.
 - **Adding symbols** (Steven: "add artifacts from the gallery", read as drawings from the
   symbol library): edit mode has "Add symbols", a palette of every drawing by kind
   (mountains, trees, towns, landmarks, banners and so on). Pick one, click the map to
-  place it, keep clicking to place more. "Vary each one" (on by default) picks a different
-  drawing of that kind, a size within 15% and a random facing each time. Added symbols go
+  place it, keep clicking to place more. The chosen drawing is always the one placed.
+  "Vary size and facing" (on by default) gives each copy a size within 15% and a random
+  facing; "Mix drawings of this kind" (off by default) picks any drawing of the kind instead
+  (Steven found the old mixing default surprising). Added symbols go
   in front of generated ones, travel in share links and gallery entries, and can be moved,
   swapped, layered and deleted.
   - Fields have no drawings in the library yet, so they are not offered.

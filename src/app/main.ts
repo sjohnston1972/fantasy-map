@@ -72,6 +72,7 @@ const els = {
   palSize: $<HTMLInputElement>("#pal-size"),
   palSizeOut: $<HTMLOutputElement>("#pal-size-out"),
   palVary: $<HTMLInputElement>("#pal-vary"),
+  palMix: $<HTMLInputElement>("#pal-mix"),
   palGrid: $<HTMLElement>("#pal-grid"),
   palHint: $<HTMLElement>("#pal-hint"),
   palDone: $<HTMLButtonElement>("#pal-done"),
@@ -829,8 +830,8 @@ function showKept(text: string, href: string, linkText: string) {
 // ---- Adding symbols from the library ----
 // The palette lists every drawing in the symbol packs, by kind. Pick one, then click the
 // map to place it; each click places another, so a forest or a range builds up quickly.
-// "Vary each one" picks a different drawing of the same kind, a slightly different size and
-// a random facing for every click, as a hand-inked map would have.
+// "Vary size and facing" gives each copy a slightly different size and a random facing, as
+// a hand-inked map would have; "Mix drawings" also picks any drawing of the kind each time.
 
 // Kinds in the order a mapmaker reaches for them, and their usual width in map pixels on a
 // 1600-pixel-wide map (the generator's sizes, see src/gen/symbols.ts and svg.ts).
@@ -919,8 +920,9 @@ function placeAt(clientX: number, clientY: number) {
   if (!placing || !current || !ink) return;
   const list = ink[placing.role];
   if (!list?.length) return;
+  // The picked drawing, unless "Mix drawings" asks for any drawing of the kind.
   const vary = els.palVary.checked;
-  const index = vary ? Math.floor(Math.random() * list.length) : placing.index;
+  const index = els.palMix.checked ? Math.floor(Math.random() * list.length) : placing.index;
   const icon = list[index];
   const { width: W, height: H } = current.settings;
   const fr = frameFor(W, H);
