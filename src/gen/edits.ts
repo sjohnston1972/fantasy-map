@@ -17,7 +17,7 @@
 // generated symbols, and can then be moved, swapped, layered or deleted the same way.
 
 import type { Label, Labelling } from "./labels";
-import { boxesOverlap, compassBox, symBox, textWidth, titleFrame } from "./labels";
+import { boxesOverlap, compassBox, scaleBox, symBox, textWidth, titleFrame } from "./labels";
 import type { GeneratedMap } from "./pipeline";
 import type { Settlements } from "./settlements";
 import type { PlacedSymbol } from "./symbols";
@@ -116,6 +116,11 @@ export function applyEdits(m: GeneratedMap, e: Edits): EditedMap {
       const [dx, dy] = shift(key);
       const text = e.text[key] ?? l.text;
       const r = size(key);
+      if (l.kind === "scale") {
+        // A bigger bar stands for more miles, so it stays true to the map.
+        const d = { ...l, size: l.size * r, span: (l.span ?? 0) * r, miles: (l.miles ?? 0) * r, x: l.x + dx, y: l.y + dy };
+        return { ...d, box: scaleBox(d) };
+      }
       if (l.kind === "title" || l.kind === "compass") {
         const d = { ...l, text: l.kind === "title" ? text : l.text, size: l.size * r, x: l.x + dx, y: l.y + dy };
         return { ...d, box: l.kind === "title" ? titleFrame(d) : compassBox(d) };

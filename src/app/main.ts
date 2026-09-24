@@ -5,7 +5,7 @@ import { generate, type GeneratedMap } from "../gen/pipeline";
 import { renderRelief } from "../gen/render";
 import { toInkSet, type InkSet, type InkSymbol } from "../gen/inkset";
 import { addedNameLayout, asDrawing, drawingOf, drawnBoxOf, frameFor, layerOrder, renderItems, renderSvg } from "../gen/svg";
-import { cultureAt, Namer } from "../gen/names";
+import { cultureAt, Namer, titleOptions } from "../gen/names";
 import { rng, stageSeed } from "../gen/rng";
 import { addSymbol, applyEdits, changedKeys, editCount, isSymbolKey, layer, move, NO_EDITS, remove, rename, resize, swap, type AddedSymbol, type EditedMap, type Edits, type LayerMove } from "../gen/edits";
 import { embeddedFontCss, pngSize, saveBlob, svgToPng, svgToThumb, toBase64 } from "./export";
@@ -13,7 +13,7 @@ import { saveMyMap } from "./mymaps";
 import { drawnBox, MapZoom, MAX_ZOOM, previewTransform, type View } from "./zoom";
 import { decodeEdits, decodeSettings, encodeEdits, encodeSettings, fingerprint } from "./share";
 import { randomSeed } from "../gen/rng";
-import { cleanSettings, DEFAULT_SETTINGS, GENERATOR_VERSION, type MapSettings } from "../gen/settings";
+import { cleanSettings, DEFAULT_SETTINGS, GENERATOR_VERSION, type Border, type MapSettings } from "../gen/settings";
 
 // A-paper proportions (1 by the square root of 2), so a map prints on A3 or A4 exactly.
 const SHAPES: Record<string, [number, number]> = {
@@ -26,6 +26,8 @@ const els = {
   form: $<HTMLFormElement>("#settings"),
   seed: $<HTMLInputElement>("#seed"),
   shape: $<HTMLSelectElement>("#shape"),
+  border: $<HTMLSelectElement>("#border"),
+  suggest: $<HTMLButtonElement>("#suggest"),
   sea: $<HTMLInputElement>("#sea"),
   seaOut: $<HTMLOutputElement>("#sea-out"),
   mountains: $<HTMLInputElement>("#mountains"),
@@ -147,6 +149,15 @@ els.form.addEventListener("submit", (e) => {
 // Sliders and the shape redraw as they change; the seed redraws on Enter or Generate.
 for (const input of [els.sea, els.mountains, els.forest, els.towns]) input.addEventListener("input", () => (readForm(), draw()));
 els.shape.addEventListener("change", () => (readForm(), draw()));
+// The border changes only the frame, so the map is redrawn, not generated again (and its
+// edits and generator version stay as they are).
+els.border.addEventListener("change", () => {
+  settings = cleanSettings({ ...settings, border: els.border.value as Border });
+  if (!current) return;
+  current = { ...current, settings: { ...current.settings, border: settings.border } };
+  paint(current);
+  void updateLink();
+});
 els.showRelief.addEventListener("change", () => current && paintRelief(current));
 
 function readForm() {
@@ -169,6 +180,7 @@ function readForm() {
 function syncForm() {
   els.seed.value = String(settings.seed);
   els.shape.value = Object.keys(SHAPES).find((k) => SHAPES[k][0] === settings.width && SHAPES[k][1] === settings.height) ?? "portrait";
+  els.border.value = settings.border;
   els.sea.value = String(Math.round(settings.sea_level * 100));
   els.seaOut.value = `${els.sea.value}% water`;
   els.mountains.value = String(Math.round(settings.mountain_density * 100));
@@ -218,7 +230,7 @@ function draw() {
 
 function svgFor(map: EditedMap, fontCss?: string): string {
   const { width, height } = map.settings;
-  return renderSvg({ width, height, water: map.water, symbols: map.symbols, towns: map.towns, labels: map.labels, ink, fontCss });
+  return renderSvg({ width, height, water: map.water, symbols: map.symbols, towns: map.towns, labels: map.labels, ink, fontCss, border: map.settings.border });
 }
 
 function paint(map: GeneratedMap) {
@@ -640,6 +652,7 @@ function showSelection() {
   els.redo.disabled = redoStack.length === 0;
   els.rename.hidden = !isLabel;
   if (isLabel) els.labelText.value = oneLabel?.text ?? oneAdded?.name ?? "";
+  els.suggest.hidden = oneLabel?.kind !== "title";
   const n = editCount(edits);
   els.editHint.textContent =
     picked.length > 1
@@ -1330,3 +1343,13 @@ function settlementName(role: string, x: number, y: number): string | undefined 
   }
   return undefined;
 }
+
+// "Suggest another" for a picked title: the next of the usual wordings for its region.
+els.suggest.addEventListener("click", () => {
+  const key = picked.length === 1 ? picked[0] : null;
+  const title = key && edited?.labels.labels.find((l) => `label:${l.id}` === key && l.kind === "title");
+  const capital = edited?.labels.labels.find((l) => l.kind === "capital")?.text;
+  if (!key || !title || !capital) return;
+  const options = titleOptions(title.culture, capital);
+  commit(rename(edits, key, options[(options.indexOf(title.text) + 1) % options.length]));
+});

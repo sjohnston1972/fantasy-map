@@ -34,6 +34,16 @@
       </label>
 
       <label class="field">
+        <span>Border</span>
+        <select id="border">
+          <option value="classic">Classic double rule</option>
+          <option value="chequered">Chequered bands</option>
+          <option value="ornate">Ornate corners</option>
+          <option value="plain">Plain line</option>
+        </select>
+      </label>
+
+      <label class="field">
         <span>Sea level <output id="sea-out" for="sea"></output></span>
         <input id="sea" type="range" min="5" max="90" step="1">
       </label>
@@ -135,6 +145,7 @@
                 <label for="label-text">Wording</label>
                 <input id="label-text" type="text" maxlength="60" autocomplete="off">
                 <button type="submit" class="plain">Rename</button>
+                <button type="button" id="suggest" class="plain" hidden>Suggest another</button>
               </form>
               <p id="edit-hint" class="status-hint" aria-live="polite"></p>
             </div>

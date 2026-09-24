@@ -8,6 +8,7 @@ import { WATER_LAKE, WATER_SEA, type Hydrology } from "./hydrology";
 import { pickSymbol, type InkSet, type InkSymbol } from "./inkset";
 import { compassBox, textWidth, titleFrame, type Emblem, type Label, type Labelling } from "./labels";
 import type { Bridge, Landmark, Settlement, Settlements } from "./settlements";
+import type { Border } from "./settings";
 import type { PlacedSymbol } from "./symbols";
 
 export interface SvgInput {
@@ -19,6 +20,7 @@ export interface SvgInput {
   ink?: InkSet; // hand-inked symbols; placeholders are drawn for any role without them
   labels?: Labelling;
   fontCss?: string; // embedded @font-face rules, for SVG files saved outside the page
+  border?: Border; // frame style (classic when left out)
 }
 
 const INK = "#1a1714";
@@ -120,9 +122,8 @@ export function renderSvg(m: SvgInput): string {
 
   parts.push(`</g></g>`);
 
-  // A double-ruled border, as on old engraved maps, with plain paper outside it.
-  const rule = (r: Frame["outer"], width: number) => `<rect x="${r.x}" y="${r.y}" width="${r.w}" height="${r.h}" fill="none" stroke="${INK}" stroke-width="${width}"/>`;
-  parts.push(rule(fr.outer, 3 * px), rule(fr.inner, 1.2 * px));
+  // The frame, with plain paper outside it.
+  parts.push(frameMarkup(fr, m.border ?? "classic", px));
   parts.push(`</svg>`);
   // Drawings used on this map, defined once and reused by reference.
   parts.splice(1, 0, defs.markup());
@@ -192,6 +193,7 @@ function itemDrawer(m: SvgInput, defs: InkDefs) {
       const key = `label:${l.id}`;
       if (l.kind === "title") return { markup: titleMarkup(l, key) };
       if (l.kind === "compass") return { markup: compassMarkup(l, key) };
+      if (l.kind === "scale") return { markup: scaleMarkup(l, key) };
       const text = escapeXml(l.caps ? l.text.toUpperCase() : l.text);
       const style = `font-size="${l.size.toFixed(1)}"${l.italic ? ' font-style="italic"' : ""}${l.spacing ? ` letter-spacing="${(l.spacing * l.size).toFixed(1)}"` : ""} stroke-width="${(l.size * 0.22).toFixed(1)}"`;
       if (l.path) {
@@ -278,6 +280,29 @@ function addedName(s: PlacedSymbol): string {
   return `<text x="${l.x.toFixed(1)}" y="${l.y.toFixed(1)}" font-family="'IM Fell English', Georgia, serif" font-size="${l.size.toFixed(1)}"${l.italic ? ' font-style="italic"' : ""}${l.spacing ? ` letter-spacing="${(l.spacing * l.size).toFixed(1)}"` : ""} fill="${INK}" stroke="#fff" stroke-width="${(l.size * 0.22).toFixed(1)}" stroke-linejoin="round" paint-order="stroke">${text}</text>`;
 }
 
+// A scale bar: four bands, alternately black and white, with figures above and "Miles" below.
+function scaleMarkup(l: Label, key: string): string {
+  const span = l.span ?? 0;
+  const miles = l.miles ?? 0;
+  const s = l.size;
+  const n = (v: number) => v.toFixed(1);
+  const x0 = l.x - span / 2;
+  const h = s * 0.42;
+  const bands: string[] = [];
+  for (let i = 0; i < 4; i++) bands.push(`<rect x="${n(x0 + (i * span) / 4)}" y="${n(l.y - h)}" width="${n(span / 4)}" height="${n(h)}" fill="${i % 2 ? "#fff" : INK}" stroke="${INK}" stroke-width="${(s * 0.06).toFixed(2)}"/>`);
+  const figure = (f: number) => {
+    const v = miles * f;
+    return `<text x="${n(x0 + span * f)}" y="${n(l.y - h - s * 0.3)}" text-anchor="middle" font-size="${n(s * 0.85)}" stroke-width="${n(s * 0.18)}">${Number.isInteger(v) ? v : v.toFixed(1)}</text>`;
+  };
+  return (
+    `<g data-key="${key}" data-label="${l.id}" data-kind="scale">` +
+    `<rect x="${n(x0 - s * 0.6)}" y="${n(l.y - s * 1.5)}" width="${n(span + s * 1.2)}" height="${n(s * 2.9)}" fill="#fff" stroke="none" opacity="0.85"/>` +
+    bands.join("") +
+    figure(0) + figure(0.5) + figure(1) +
+    `<text x="${n(l.x)}" y="${n(l.y + s * 1.05)}" text-anchor="middle" font-size="${n(s)}" font-style="italic" stroke-width="${n(s * 0.2)}">${escapeXml(l.text)}</text></g>`
+  );
+}
+
 // The layer each kind of item is drawn in (see renderSvg).
 export function layerOf(key: string): "bridges" | "symbols" | "places" | "emblems" | "labels" | null {
   const kind = key.split(":")[0];
@@ -320,6 +345,58 @@ export function renderItems(m: SvgInput, keys: Iterable<string>): { items: Map<s
     if (path) paths.push([`rl${l.id}`, path]);
   }
   return { items, defs: defs.entries(), paths };
+}
+
+// The frame's styles, all drawn in the band between the outer and inner rules, so the map
+// inside is the same size whichever is chosen.
+//   classic: a thick and a thin rule, as on old engraved maps.
+//   chequered: the band between the rules divided into black and white lengths, like the
+//     degree bands on old charts.
+//   ornate: the classic rules with a square and diamond at each corner and a diamond at the
+//     middle of each side.
+//   plain: one thin rule.
+function frameMarkup(fr: Frame, border: Border, px: number): string {
+  const n = (v: number) => v.toFixed(1);
+  const rule = (r: Frame["outer"], width: number) => `<rect x="${n(r.x)}" y="${n(r.y)}" width="${n(r.w)}" height="${n(r.h)}" fill="none" stroke="${INK}" stroke-width="${n(width)}"/>`;
+  const { outer: o, inner: i } = fr;
+  const gap = i.x - o.x;
+  if (border === "plain") return rule(i, 1.4 * px);
+  if (border === "chequered") {
+    const step = 42 * px;
+    const cells: string[] = [];
+    // Along the top and bottom, then down the sides, black on every other length.
+    for (let x = i.x, k = 0; x < i.x + i.w; x += step, k++) {
+      if (k % 2) continue;
+      const w = Math.min(step, i.x + i.w - x);
+      cells.push(`M${n(x)} ${n(o.y)}h${n(w)}v${n(gap)}h${n(-w)}Z`, `M${n(x)} ${n(i.y + i.h)}h${n(w)}v${n(gap)}h${n(-w)}Z`);
+    }
+    for (let y = i.y, k = 0; y < i.y + i.h; y += step, k++) {
+      if (k % 2) continue;
+      const h = Math.min(step, i.y + i.h - y);
+      cells.push(`M${n(o.x)} ${n(y)}h${n(gap)}v${n(h)}h${n(-gap)}Z`, `M${n(i.x + i.w)} ${n(y)}h${n(gap)}v${n(h)}h${n(-gap)}Z`);
+    }
+    return `<path d="${cells.join("")}" fill="${INK}"/>` + rule(o, 1.6 * px) + rule(i, 1.2 * px);
+  }
+  const classic = rule(o, 3 * px) + rule(i, 1.2 * px);
+  if (border === "classic") return classic;
+  // Ornate: corner squares with a diamond inside, and a diamond at the middle of each side.
+  const c = gap * 2.4;
+  const diamond = (x: number, y: number, r: number) => `M${n(x)} ${n(y - r)}L${n(x + r)} ${n(y)}L${n(x)} ${n(y + r)}L${n(x - r)} ${n(y)}Z`;
+  const corners = [
+    [o.x, o.y],
+    [o.x + o.w, o.y],
+    [o.x, o.y + o.h],
+    [o.x + o.w, o.y + o.h],
+  ];
+  const squares = corners.map(([x, y]) => `<rect x="${n(x - c / 2)}" y="${n(y - c / 2)}" width="${n(c)}" height="${n(c)}" fill="#fff" stroke="${INK}" stroke-width="${n(1.6 * px)}"/>`).join("");
+  const mids = [
+    [o.x + o.w / 2, o.y + gap / 2],
+    [o.x + o.w / 2, o.y + o.h - gap / 2],
+    [o.x + gap / 2, o.y + o.h / 2],
+    [o.x + o.w - gap / 2, o.y + o.h / 2],
+  ];
+  const diamonds = [...corners.map(([x, y]) => diamond(x, y, c * 0.32)), ...mids.map(([x, y]) => diamond(x, y, gap * 1.1))].join("");
+  return classic + squares + `<path d="${diamonds}" fill="${INK}"/>`;
 }
 
 // Sea ripples, land, lakes, rivers and roads.

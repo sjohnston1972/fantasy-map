@@ -286,7 +286,8 @@ describe("public map gallery", () => {
 
   it("refuses bad names, codes, edits and thumbnails", async () => {
     for (const name of ["", "   ", "x".repeat(61), "Visit www.spam.example", "https://spam", "cheap pills.com", 42]) expect((await publish({ ...good(), name })).status, String(name)).toBe(400);
-    for (const code of ["", "1.acm9.q.35.50.60.5", "1.acm9.p.35.50.60.5;drop", "<b>"]) expect((await publish({ ...good(), code })).status, code).toBe(400);
+    for (const code of ["", "1.acm9.q.35.50.60.5", "1.acm9.p.35.50.60.5;drop", "<b>", "4.acm9.p.35.50.60.5.x"]) expect((await publish({ ...good(), code })).status, code).toBe(400);
+    expect((await publish({ ...good(), code: "4.acm9.p.35.50.60.5.k", name: "Chequered" })).status).toBe(201);
     expect((await publish({ ...good(), edits: "has spaces" })).status).toBe(400);
     expect((await publish({ ...good(), thumb: PNG_1x1.toString("base64") })).status).toBe(400);
     expect((await publish({ ...good(), thumb: fakeJpeg(2000, 3000).toString("base64") })).status).toBe(400);

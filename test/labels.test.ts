@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { boxesOverlap, compassBox, emblemBox, symBox, textWidth, titleFrame } from "../src/gen/labels";
+import { boxesOverlap, compassBox, emblemBox, scaleBox, symBox, textWidth, titleFrame } from "../src/gen/labels";
+import { titleOptions } from "../src/gen/names";
 import { cultureAt, Namer } from "../src/gen/names";
 import { generate } from "../src/gen/pipeline";
 import { rng } from "../src/gen/rng";
@@ -108,6 +109,24 @@ describe("title and compass (generator version 3)", () => {
       expect(title[0].text).toContain(capital.text);
       expect(title[0].box).toEqual(titleFrame(title[0]));
       expect(compass[0].box).toEqual(compassBox(compass[0]));
+    }
+  });
+
+  it("adds a 50-mile scale bar from generator version 4", () => {
+    for (const m of maps) {
+      const bars = m.labels.labels.filter((l) => l.kind === "scale");
+      expect(bars.length, `seed ${m.settings.seed}`).toBe(1);
+      expect(bars[0].miles).toBe(50);
+      expect(bars[0].box).toEqual(scaleBox(bars[0]));
+    }
+    expect(generate({ ...DEFAULT_SETTINGS, seed: 482913, v: 3 }).labels.labels.some((l) => l.kind === "scale")).toBe(false);
+  });
+
+  it("offers each region's title wordings, and the generator picks one of them", () => {
+    for (const m of maps) {
+      const title = m.labels.labels.find((l) => l.kind === "title")!;
+      const capital = m.labels.labels.find((l) => l.kind === "capital")!;
+      expect(titleOptions(title.culture, capital.text)).toContain(title.text);
     }
   });
 

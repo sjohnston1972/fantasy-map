@@ -11,18 +11,25 @@
 //   | seed, in base 36 to keep it short
 //   generator version (the settings' v field)
 //
+// An eighth field, only when the frame is not the classic one, gives the border style:
+// k (chequered), o (ornate) or p (plain).
+//
 // The sliders work in whole per cents, so the per cent values round-trip exactly and the
 // map rebuilt from a code is the same map.
 
 import { MAX_SCALE, MIN_SCALE, NO_EDITS, type Edits } from "../gen/edits";
-import { cleanSettings, type MapSettings } from "../gen/settings";
+import { cleanSettings, type Border, type MapSettings } from "../gen/settings";
+
+const BORDER_CODES: Record<Border, string> = { classic: "c", chequered: "k", ornate: "o", plain: "p" };
 
 const SHAPES: Record<string, [number, number]> = { p: [1600, 2263], l: [2263, 1600] };
 const pct = (x: number) => Math.round(x * 100);
 
 export function encodeSettings(s: MapSettings): string {
   const shape = Object.keys(SHAPES).find((k) => SHAPES[k][0] === s.width && SHAPES[k][1] === s.height) ?? `${s.width}x${s.height}`;
-  return [s.v, s.seed.toString(36), shape, pct(s.sea_level), pct(s.mountain_density), pct(s.forest_density), s.town_count].join(".");
+  const fields = [s.v, s.seed.toString(36), shape, pct(s.sea_level), pct(s.mountain_density), pct(s.forest_density), s.town_count];
+  if (s.border !== "classic") fields.push(BORDER_CODES[s.border]);
+  return fields.join(".");
 }
 
 // Read a share code back into settings. Returns null for anything that is not a code; the
@@ -30,7 +37,8 @@ export function encodeSettings(s: MapSettings): string {
 export function decodeSettings(code: string): { settings: MapSettings; version: number } | null {
   const parts = code.trim().split(".");
   if (parts.length < 7 || !parts.every((p) => /^[0-9a-z]+$/i.test(p))) return null;
-  const [v, seed, shape, sea, mountains, forest, towns] = parts;
+  const [v, seed, shape, sea, mountains, forest, towns, borderCode] = parts;
+  const border = (Object.keys(BORDER_CODES) as Border[]).find((b) => BORDER_CODES[b] === borderCode) ?? "classic";
   const version = Number(v);
   const size = SHAPES[shape] ?? shape.match(/^(\d+)x(\d+)$/)?.slice(1).map(Number);
   const seedNum = parseInt(seed, 36);
@@ -44,6 +52,7 @@ export function decodeSettings(code: string): { settings: MapSettings; version: 
     mountain_density: Number(mountains) / 100,
     forest_density: Number(forest) / 100,
     town_count: Number(towns),
+    border,
   });
   return { settings, version };
 }

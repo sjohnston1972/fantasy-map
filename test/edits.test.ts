@@ -303,6 +303,28 @@ describe("named settlements and the title", () => {
   });
 });
 
+describe("scale bar and borders", () => {
+  it("makes a resized scale bar stand for proportionally more miles", () => {
+    const m4 = generate({ ...DEFAULT_SETTINGS, seed: 482913 });
+    const bar = m4.labels.labels.find((l) => l.kind === "scale")!;
+    const bigger = applyEdits(m4, resize(NO_EDITS, `label:${bar.id}`, 2)).labels.labels.find((l) => l.id === bar.id)!;
+    expect(bigger.span).toBeCloseTo(bar.span! * 2);
+    expect(bigger.miles).toBeCloseTo(100);
+  });
+
+  it("draws each border style in the band outside the map, leaving the map the same size", () => {
+    const base = (border?: "classic" | "chequered" | "ornate" | "plain") => renderSvg({ width: map.settings.width, height: map.settings.height, water: map.water, symbols: map.symbols, towns: map.towns, labels: map.labels, border });
+    const content = (svg: string) => svg.match(/<g data-content="1" transform="[^"]+">/)![0];
+    const classic = base();
+    expect(base("classic")).toBe(classic);
+    for (const b of ["chequered", "ornate", "plain"] as const) {
+      const svg = base(b);
+      expect(svg).not.toBe(classic);
+      expect(content(svg)).toBe(content(classic));
+    }
+  });
+});
+
 describe("picking boxes", () => {
   it("covers exactly where a drawing is drawn, mirrored or not", () => {
     // Test drawings are 40 by 30 with the anchor at the middle of the base.

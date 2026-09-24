@@ -82,9 +82,9 @@ const picked = (page: Page) => page.locator("#map .selected").evaluateAll((els) 
 test.describe("everywhere", () => {
   test("draws the same map in every browser (share links rebuild it exactly)", async ({ page }) => {
     await open(page);
-    await expect(page.locator("#caption")).toContainText("Map check q2bja7");
+    await expect(page.locator("#caption")).toContainText("Map check z0m9d9");
     await open(page, "/?map=1.acm9.p.35.50.60.5");
-    await expect(page.locator("#caption")).toContainText("Map check 4wtnwd");
+    await expect(page.locator("#caption")).toContainText("Map check u2ezz3");
   });
 
   test("fits the screen without sideways scrolling", async ({ page }) => {
@@ -361,6 +361,37 @@ test.describe("editing with a mouse", () => {
     await page.locator("#label-text").fill("Dragonford");
     await page.locator("#label-text").press("Enter");
     await expect(town.locator("text")).toHaveText("Dragonford");
+  });
+
+  test("the border choice restyles the frame without making a new map", async ({ page }) => {
+    await open(page, "/?map=4.acm9.p.35.50.60.5");
+    await editMode(page);
+    // Make an edit first: it must survive the change of border.
+    const key = await isolatedItem(page, "mountain");
+    await page.mouse.click(centre(await box(page, key)).x, centre(await box(page, key)).y);
+    await page.keyboard.press("Delete");
+    const caption = await page.locator("#caption").textContent();
+    await page.locator("#border").selectOption("chequered");
+    await expect(page).toHaveURL(/map=4.acm9.p.35.50.60.5.k/);
+    await expect(page).toHaveURL(/&e=/);
+    await expect(item(page, key)).toHaveCount(0);
+    expect(await page.locator("#caption").textContent()).toBe(caption); // not generated again
+    await page.goto(page.url());
+    await expect(page.locator("#border")).toHaveValue("chequered");
+  });
+
+  test("suggests other wordings for the title", async ({ page }) => {
+    await open(page, "/?map=4.acm9.p.35.50.60.5");
+    await editMode(page);
+    const title = await page.evaluate(() => document.querySelector<SVGElement>('#map [data-kind="title"]')!.dataset.key!);
+    const b = await box(page, title);
+    await page.mouse.click(centre(b).x, centre(b).y);
+    const first = await page.locator("#label-text").inputValue();
+    await page.locator("#suggest").click();
+    await expect(page.locator("#label-text")).not.toHaveValue(first);
+    const second = await page.locator("#label-text").inputValue();
+    expect(second).toContain("Svalholm");
+    await expect(item(page, title)).toContainText(second.toUpperCase());
   });
 
   test("saves SVG and PNG files", async ({ page }) => {

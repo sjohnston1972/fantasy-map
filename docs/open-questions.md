@@ -397,3 +397,20 @@ can only be reopened by dropping its file again on the Import page.
 - Open: a scale bar under the title, border styles, and a choice of title wording are
   natural next steps (Phase 2 lists "compass rose, border decoration and title cartouche
   options").
+
+## Generator version 4: scale bar; border styles; title wordings
+
+- **Scale bar** (new maps, links starting `4.`): four black and white bands for 50 miles,
+  figures above and "Miles" below, placed like the compass in the emptiest edge spot. It
+  can be moved, deleted and resized; a resized bar stands for proportionally more miles.
+  The map is taken as about 400 miles across at the default size (a quarter of a mile to a
+  map pixel). Open question: should the distance unit (miles, leagues, days' ride) be a
+  choice?
+- **Border styles** in the settings: classic double rule (as before), chequered bands,
+  ornate corners (squares and diamonds), plain line. Only the frame's drawing changes, so it
+  is not a generator version: the share code gains an eighth field (`k`, `o` or `p`) only
+  when the border is not classic, so every earlier link reads as classic. Changing it
+  redraws the map without generating it again, keeping any edits.
+- **Title wordings:** a picked title shows "Suggest another", cycling through its region's
+  usual wordings (The Kingdom of, The Realm of, The Jarldom of...); any wording can still be
+  typed.

@@ -7,7 +7,13 @@
 //   1: first release.
 //   2: forests grow in stands of one kind of tree, drawn close and overlapping.
 //   3: a title in a framed box and a compass rose.
-export const GENERATOR_VERSION = 3;
+//   4: a scale bar.
+export const GENERATOR_VERSION = 4;
+
+// How the map's frame is drawn. Only the drawing changes, not the map, so this is not part
+// of the generator version.
+export const BORDERS = ["classic", "chequered", "ornate", "plain"] as const;
+export type Border = (typeof BORDERS)[number];
 
 export interface MapSettings {
   v: number;
@@ -19,6 +25,7 @@ export interface MapSettings {
   mountain_density: number; // 0 to 1: how much of the land is mountainous
   forest_density: number; // used from milestone 4
   town_count: number; // used from milestone 5
+  border: Border; // frame style
 }
 
 export const DEFAULT_SETTINGS: MapSettings = {
@@ -31,6 +38,7 @@ export const DEFAULT_SETTINGS: MapSettings = {
   mountain_density: 0.5,
   forest_density: 0.6,
   town_count: 5,
+  border: "classic",
 };
 
 export const LIMITS = {
@@ -58,5 +66,6 @@ export function cleanSettings(s: Partial<MapSettings>): MapSettings {
     mountain_density: clamp(s.mountain_density, LIMITS.mountain_density, d.mountain_density),
     forest_density: clamp(s.forest_density, [0, 1], d.forest_density),
     town_count: Math.round(clamp(s.town_count, [0, 30], d.town_count)),
+    border: BORDERS.includes(s.border as Border) ? (s.border as Border) : d.border,
   };
 }

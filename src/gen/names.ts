@@ -56,6 +56,18 @@ export function cultureAt(north: number, west: number, temperature: number, twis
   return "english";
 }
 
+// Ways to title a map after its capital, in the style of the capital's region.
+const TITLE_FORMS: Record<Culture, string[]> = {
+  norse: ["The Jarldom of %", "The Northern Reaches of %", "The Kingdom of %"],
+  celtic: ["The Kingdom of %", "The Lands of %", "The High Kingdom of %"],
+  english: ["The Realm of %", "The Kingdom of %", "The Shire of %"],
+  southern: ["The Principality of %", "The Free Cities of %", "The Duchy of %"],
+};
+
+export function titleOptions(c: Culture, capital: string): string[] {
+  return TITLE_FORMS[c].map((f) => f.replace("%", capital));
+}
+
 export class Namer {
   private used = new Set<string>();
   constructor(private next: () => number) {}
@@ -126,13 +138,7 @@ export class Namer {
 
   // The map's title, named for its capital in the style of the capital's region.
   title(c: Culture, capital: string): string {
-    const forms: Record<Culture, string[]> = {
-      norse: ["The Jarldom of %", "The Northern Reaches of %", "The Kingdom of %"],
-      celtic: ["The Kingdom of %", "The Lands of %", "The High Kingdom of %"],
-      english: ["The Realm of %", "The Kingdom of %", "The Shire of %"],
-      southern: ["The Principality of %", "The Free Cities of %", "The Duchy of %"],
-    };
-    return this.pick(forms[c]).replace("%", capital);
+    return this.pick(titleOptions(c, capital));
   }
 
   sea(c: Culture): string {

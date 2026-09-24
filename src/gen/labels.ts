@@ -22,7 +22,7 @@ export interface Box {
   h: number;
 }
 
-export type LabelKind = "capital" | "town" | "village" | "sea" | "region" | "lake" | "river" | "title" | "compass";
+export type LabelKind = "capital" | "town" | "village" | "sea" | "region" | "lake" | "river" | "title" | "compass" | "scale";
 
 export interface Label {
   id: number;
@@ -39,6 +39,8 @@ export interface Label {
   path?: [number, number][]; // river labels follow the river
   ref?: number; // settlement id, for town labels
   culture: Culture;
+  span?: number; // scale bar: its length in map pixels
+  miles?: number; // scale bar: the distance its length stands for
 }
 
 export interface Emblem {
@@ -76,6 +78,16 @@ export function titleFrame(l: Pick<Label, "x" | "y" | "size" | "text" | "caps" |
 // The area of a compass rose: x and y are its middle, size its radius; the N sits above.
 export function compassBox(l: Pick<Label, "x" | "y" | "size">): Box {
   return { x: l.x - l.size, y: l.y - l.size * 1.4, w: l.size * 2, h: l.size * 2.4 };
+}
+
+// A region map is about 400 miles across at the default size: a quarter of a mile to a map
+// pixel (before the map is scaled up for larger sizes).
+export const MILES_PER_PIXEL = 0.25;
+
+// The area of a scale bar: x is its middle, y the bar's line; figures above, "Miles" below.
+export function scaleBox(l: Pick<Label, "x" | "y" | "size" | "span">): Box {
+  const span = l.span ?? 0;
+  return { x: l.x - span / 2 - l.size * 0.6, y: l.y - l.size * 1.5, w: span + l.size * 1.2, h: l.size * 2.9 };
 }
 
 export function boxesOverlap(a: Box, b: Box, pad = 0): boolean {
@@ -301,6 +313,14 @@ export function placeLabels(hy: Hydrology, cl: Climate, towns: Settlements, symb
     const r = 66 * px;
     const at = bestEdgeSpot((x, y) => compassBox({ x, y, size: r }), (b) => b.w);
     if (at) add({ kind: "compass", text: "N", x: at.x, y: at.y, anchor: "middle", size: r, italic: false, caps: true, spacing: 0, box: compassBox({ x: at.x, y: at.y, size: r }), culture: "english" });
+  }
+
+  // From generator version 4: a scale bar, 50 miles long at the default size.
+  if (s.v >= 4) {
+    const miles = 50;
+    const scale = { size: 13 * px, span: (miles / MILES_PER_PIXEL) * px, miles };
+    const at = bestEdgeSpot((x, y) => scaleBox({ ...scale, x, y }), (b) => b.w);
+    if (at) add({ kind: "scale", text: "Miles", x: at.x, y: at.y, anchor: "middle", ...scale, italic: true, caps: false, spacing: 0, box: scaleBox({ ...scale, ...at }), culture: "english" });
   }
 
   // 8. Clear symbols from under the lettering and emblems.

@@ -15,14 +15,19 @@ describe("share links (spec: share link rebuilds the identical map in another br
 
   it("packs the settings into a short code", () => {
     const code = encodeSettings(settings);
-    expect(code).toBe("3.acm9.l.42.70.25.9");
-    expect(encodeSettings(DEFAULT_SETTINGS)).toBe("3.acm9.p.35.50.60.5");
+    expect(code).toBe("4.acm9.l.42.70.25.9");
+    expect(encodeSettings(DEFAULT_SETTINGS)).toBe("4.acm9.p.35.50.60.5");
+    // The border is added only when it is not the classic one, so older links are unchanged.
+    expect(encodeSettings({ ...DEFAULT_SETTINGS, border: "chequered" })).toBe("4.acm9.p.35.50.60.5.k");
+    expect(decodeSettings("4.acm9.p.35.50.60.5.o")?.settings.border).toBe("ornate");
+    expect(decodeSettings("4.acm9.p.35.50.60.5")?.settings.border).toBe("classic");
+    expect(decodeSettings("4.acm9.p.35.50.60.5.x")?.settings.border).toBe("classic");
     expect(code.length).toBeLessThan(30);
     expect(encodeURIComponent(code)).toBe(code); // safe in a URL as it is
   });
 
   it("reads a code back to exactly the same settings", () => {
-    expect(decodeSettings(encodeSettings(settings))).toEqual({ settings, version: 3 });
+    expect(decodeSettings(encodeSettings(settings))).toEqual({ settings, version: 4 });
     // A link made before version 2 keeps version 1, so it draws the map it always did.
     expect(decodeSettings("1.acm9.l.42.70.25.9")?.settings).toEqual({ ...settings, v: 1 });
     // A link from a newer version than this page knows is drawn with the newest it has.
