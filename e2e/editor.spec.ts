@@ -87,6 +87,18 @@ test.describe("everywhere", () => {
     await expect(page.locator("#caption")).toContainText("Map check u2ezz3");
   });
 
+  test("keeps the hint and zoom controls off the map", async ({ page }) => {
+    await open(page);
+    await page.locator("#edit-mode").click();
+    const map = (await page.locator("#map-box").boundingBox())!;
+    for (const sel of [".zoom-ctl", "#edit-hint"]) {
+      const b = (await page.locator(sel).boundingBox())!;
+      expect(b.y + b.height, sel).toBeLessThanOrEqual(map.y + 1);
+      expect(b.x, sel).toBeGreaterThanOrEqual(map.x - 1);
+      expect(b.x + b.width, sel).toBeLessThanOrEqual(map.x + map.width + 1);
+    }
+  });
+
   test("fits the screen without sideways scrolling", async ({ page }) => {
     await open(page);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);

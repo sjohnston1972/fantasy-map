@@ -116,38 +116,43 @@
       </div>
       <div class="work">
         <div class="map-frame">
-          <div id="map-box" class="map-box">
-            <div id="map" class="map" tabindex="0" aria-label="Map. Switch on editing to pick and move items."></div>
-            <canvas id="relief" class="relief" hidden aria-hidden="true"></canvas>
-            <div id="sel-box" class="sel-box" hidden>
-              <span data-corner="nw" title="Drag to resize"></span><span data-corner="ne" title="Drag to resize"></span><span data-corner="sw" title="Drag to resize"></span><span data-corner="se" title="Drag to resize"></span>
+          <div class="map-column">
+            <!-- Above the map, never over it: what to do next (or the wording box for a picked
+                 name) on the left, zoom on the right. A fixed height, so the map never moves. -->
+            <div class="map-bar">
+              <div class="map-status">
+                <form id="rename" class="rename" hidden>
+                  <label for="label-text">Wording</label>
+                  <input id="label-text" type="text" maxlength="60" autocomplete="off">
+                  <button type="submit" class="plain">Rename</button>
+                  <button type="button" id="suggest" class="plain" hidden>Suggest another</button>
+                </form>
+                <p id="edit-hint" class="status-hint" aria-live="polite"></p>
+              </div>
+              <div class="zoom-ctl" role="group" aria-label="Zoom">
+                <button type="button" id="zoom-in" aria-label="Zoom in" title="Zoom in (+)">+</button>
+                <button type="button" id="zoom-out" aria-label="Zoom out" title="Zoom out (-)">&minus;</button>
+                <button type="button" id="zoom-fit" title="Show the whole map (0)">Fit</button>
+                <output id="zoom-level" aria-live="polite">100%</output>
+              </div>
             </div>
-            <!-- Actions for the picked items, floating just above them. -->
-            <div id="sel-bar" class="sel-bar" role="toolbar" aria-label="Picked items" hidden>
-              <button type="button" id="swap" class="plain" title="Swap to another drawing (S)">Swap</button>
-              <button type="button" id="forward" class="plain" title="Bring in front of the symbol it overlaps (]); Shift-click for all the way">Forward</button>
-              <button type="button" id="backward" class="plain" title="Send behind the symbol it overlaps ([); Shift-click for all the way">Back</button>
-              <button type="button" id="smaller" class="plain" title="Make the picked items smaller (,)">Smaller</button>
-              <button type="button" id="bigger" class="plain" title="Make the picked items bigger (.)">Bigger</button>
-              <button type="button" id="copy" class="plain" title="Copy the picked items (Ctrl+C)">Copy</button>
-              <button type="button" id="cut" class="plain" title="Cut the picked items (Ctrl+X)">Cut</button>
-              <button type="button" id="delete" class="plain danger" title="Remove (Delete)">Delete</button>
-            </div>
-            <div class="zoom-ctl" role="group" aria-label="Zoom">
-              <button type="button" id="zoom-in" aria-label="Zoom in" title="Zoom in (+)">+</button>
-              <button type="button" id="zoom-out" aria-label="Zoom out" title="Zoom out (-)">&minus;</button>
-              <button type="button" id="zoom-fit" title="Show the whole map (0)">Fit</button>
-              <output id="zoom-level" aria-live="polite">100%</output>
-            </div>
-            <!-- What to do next, and the wording box for a picked name, over the map's foot. -->
-            <div class="map-status">
-              <form id="rename" class="rename" hidden>
-                <label for="label-text">Wording</label>
-                <input id="label-text" type="text" maxlength="60" autocomplete="off">
-                <button type="submit" class="plain">Rename</button>
-                <button type="button" id="suggest" class="plain" hidden>Suggest another</button>
-              </form>
-              <p id="edit-hint" class="status-hint" aria-live="polite"></p>
+            <div id="map-box" class="map-box">
+              <div id="map" class="map" tabindex="0" aria-label="Map. Switch on editing to pick and move items."></div>
+              <canvas id="relief" class="relief" hidden aria-hidden="true"></canvas>
+              <div id="sel-box" class="sel-box" hidden>
+                <span data-corner="nw" title="Drag to resize"></span><span data-corner="ne" title="Drag to resize"></span><span data-corner="sw" title="Drag to resize"></span><span data-corner="se" title="Drag to resize"></span>
+              </div>
+              <!-- Actions for the picked items, floating just above them. -->
+              <div id="sel-bar" class="sel-bar" role="toolbar" aria-label="Picked items" hidden>
+                <button type="button" id="swap" class="plain" title="Swap to another drawing (S)">Swap</button>
+                <button type="button" id="forward" class="plain" title="Bring in front of the symbol it overlaps (]); Shift-click for all the way">Forward</button>
+                <button type="button" id="backward" class="plain" title="Send behind the symbol it overlaps ([); Shift-click for all the way">Back</button>
+                <button type="button" id="smaller" class="plain" title="Make the picked items smaller (,)">Smaller</button>
+                <button type="button" id="bigger" class="plain" title="Make the picked items bigger (.)">Bigger</button>
+                <button type="button" id="copy" class="plain" title="Copy the picked items (Ctrl+C)">Copy</button>
+                <button type="button" id="cut" class="plain" title="Cut the picked items (Ctrl+X)">Cut</button>
+                <button type="button" id="delete" class="plain danger" title="Remove (Delete)">Delete</button>
+              </div>
             </div>
           </div>
         </div>

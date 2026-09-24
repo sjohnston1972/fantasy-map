@@ -86,7 +86,7 @@ input[type="range"] { width: 100%; accent-color: var(--ink); }
 #keep-status { font-size: 0.8rem; color: var(--faint); }
 
 /* Zoom controls, over the map's top-right corner. */
-.zoom-ctl { position: absolute; top: 10px; right: 10px; display: flex; align-items: center; gap: 4px; padding: 4px; background: rgba(255, 253, 248, 0.92); border: 1px solid var(--rule); border-radius: 6px; box-shadow: 0 1px 3px rgba(0,0,0,0.12); }
+.zoom-ctl { flex: none; margin-left: auto; display: flex; align-items: center; gap: 4px; }
 .zoom-ctl button { min-width: 32px; height: 32px; padding: 0 8px; font: inherit; font-size: 1.05rem; line-height: 1; color: var(--ink); background: var(--card); border: 1.5px solid var(--ink); border-radius: 4px; cursor: pointer; }
 .zoom-ctl button#zoom-fit { font-size: 0.8rem; }
 .zoom-ctl button:hover:not(:disabled) { background: #efe6d2; }
@@ -144,8 +144,20 @@ details.keys p { margin: 4px 0 0; }
 .sel-bar[hidden] { display: none; }
 .sel-bar .plain { padding: 3px 8px; font-size: 0.78rem; }
 .plain.danger { border-color: #9b2c1c; color: #9b2c1c; }
-.map-status { position: absolute; left: 8px; right: 150px; top: 10px; display: flex; flex-direction: column; align-items: flex-start; gap: 6px; pointer-events: none; }
-.status-hint { margin: 0; max-width: 100%; padding: 4px 8px; font-size: 0.78rem; color: var(--ink); background: rgba(255, 253, 248, 0.92); border: 1px solid var(--rule); border-radius: 6px; }
+.map-status { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; overflow: hidden; }
+.status-hint { margin: 0; min-width: 0; font-size: 0.8rem; color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .status-hint:empty { display: none; }
-.map-status .rename { pointer-events: auto; padding: 6px; background: rgba(255, 253, 248, 0.97); border: 1px solid var(--rule); border-radius: 6px; }
+.map-status .rename { min-width: 0; flex-wrap: nowrap; }
+.map-status .rename input { min-width: 5em; flex: 1 1 12em; padding: 3px 6px; }
+.map-status .rename .plain { padding: 3px 8px; font-size: 0.8rem; white-space: nowrap; }
+.map-status .rename:not([hidden]) + .status-hint { display: none; }
 .toolbar { align-items: flex-start; }
+
+/* The map and the bar above it share one column exactly as wide as the map, so the hint lines
+   up with its left edge and the zoom controls with its right. */
+.map-frame { flex-direction: column; align-items: center; }
+.map-column { display: flex; flex-direction: column; height: 100%; max-width: 100%; }
+.map-bar { flex: none; height: 36px; margin-bottom: 6px; display: flex; align-items: center; gap: 10px; min-width: 0; }
+.map-column > .map-box { height: calc(100% - 42px); }
+@media (max-width: 760px) { .map-column { width: 100%; height: auto; } .map-column > .map-box { height: auto; } }
+.plain[aria-pressed="true"]:hover:not(:disabled) { background: #3a332c; }
