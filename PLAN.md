@@ -1,6 +1,6 @@
 # Run plan: split the map page code into modules
 
-**Goal.** `src/app/main.ts` (about 1,650 lines) holds the whole map page: generating and
+**Goal.** `src/app/main.ts` (about 1,450 lines) holds the whole map page: generating and
 drawing, zoom wiring, picking, dragging, box select, keyboard, clipboard, palette, resizing,
 history, sharing, export and the gallery buttons. Split it into focused modules so future
 changes are safer. **No behaviour changes**: the page must look and work exactly as before.
