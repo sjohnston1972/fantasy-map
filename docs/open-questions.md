@@ -285,11 +285,15 @@ can only be reopened by dropping its file again on the Import page.
 ## Smooth panning, picking several items, copy and paste
 
 - **Smooth panning:** mid-gesture the drawn picture is moved with a CSS transform and the
-  map is redrawn once when the gesture ends (a redraw costs about 90 ms; before, every
-  pointer move paid it).
+  map is redrawn once when the gesture ends (a redraw costs about 40 to 150 ms; before,
+  every pointer move paid it). The map sits on its own graphics layer (will-change) and is
+  drawn a quarter of a view past each edge of the box, so short drags show real map and
+  longer ones show blank paper at the edge until the redraw. (A first attempt drew the
+  whole map past the edges, which made each frame of a drag take over a second.)
 - **Picking several items:** Shift-click or Ctrl-click adds or removes; Shift-drag on empty
   map (or "Select area", for touch screens) picks everything the box touches; Ctrl+A picks
-  every symbol in view. Moving (drag or arrows), Delete, Swap and layering apply to all
+  every symbol in view. "Select area" switches itself off after one box, and a drag that
+  starts on a picked item always moves the group. Moving (drag or arrows), Delete, Swap and layering apply to all
   picked items as one undo step. Renaming needs exactly one name picked.
 - **Copy and paste:** Copy, Cut, Paste buttons and Ctrl+C, Ctrl+X, Ctrl+V. Copies keep
   their layout and paste centred on the pointer (or the middle of the view from the

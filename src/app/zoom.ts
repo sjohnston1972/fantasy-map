@@ -10,6 +10,8 @@
 // pinch or wheel spin the picture already drawn is only shifted and scaled (`preview`, which
 // the graphics card does cheaply), and the map is redrawn sharp once the gesture ends
 // (`commit`), like a network device batching updates instead of sending one per change.
+// The map is drawn a quarter of a view beyond each edge of the box (the box clips it), so a
+// drag shows real map rather than blank paper until the redraw.
 
 export interface View {
   x: number;
@@ -19,6 +21,13 @@ export interface View {
 }
 
 export const MAX_ZOOM = 8;
+
+// Extra map drawn around the visible view, as a share of the view on each side. More means
+// longer drags before blank edges show, but more to draw (0.25 draws 2.25 times the area).
+export const MARGIN = 0.25;
+
+// The SVG viewBox for a view: the view plus its margin.
+export const drawnBox = (v: View): View => ({ x: v.x - v.w * MARGIN, y: v.y - v.h * MARGIN, w: v.w * (1 + 2 * MARGIN), h: v.h * (1 + 2 * MARGIN) });
 
 export const fullView = (W: number, H: number): View => ({ x: 0, y: 0, w: W, h: H });
 export const zoomLevel = (v: View, W: number) => W / v.w;
@@ -130,7 +139,7 @@ export class MapZoom {
     const lines = e.deltaMode === 1 ? 16 : 1;
     const p = this.toMap(e.clientX, e.clientY);
     // Redraw sharp a moment after the wheel stops.
-    this.glide(zoomAt(this.view, this.W, this.H, Math.exp(-e.deltaY * lines * 0.0018), p.x, p.y), 180);
+    this.glide(zoomAt(this.view, this.W, this.H, Math.exp(-e.deltaY * lines * 0.0018), p.x, p.y), 320);
   }
 
   // A pointer went down somewhere the editor did not claim. Returns true if zoom will use

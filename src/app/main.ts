@@ -8,7 +8,7 @@ import { asDrawing, drawingOf, frameFor, renderSvg } from "../gen/svg";
 import { addSymbol, applyEdits, editCount, isSymbolKey, layer, move, NO_EDITS, remove, rename, swap, type AddedSymbol, type EditedMap, type Edits, type LayerMove } from "../gen/edits";
 import { embeddedFontCss, pngSize, saveBlob, svgToPng, svgToThumb, toBase64 } from "./export";
 import { saveMyMap } from "./mymaps";
-import { MapZoom, MAX_ZOOM, previewTransform, type View } from "./zoom";
+import { drawnBox, MapZoom, MAX_ZOOM, previewTransform, type View } from "./zoom";
 import { decodeEdits, decodeSettings, encodeEdits, encodeSettings, fingerprint } from "./share";
 import { randomSeed } from "../gen/rng";
 import { cleanSettings, DEFAULT_SETTINGS, type MapSettings } from "../gen/settings";
@@ -227,7 +227,8 @@ function applyView(v: View) {
   const svg = els.map.querySelector("svg");
   if (svg) {
     svg.style.transform = "";
-    svg.setAttribute("viewBox", `${v.x.toFixed(2)} ${v.y.toFixed(2)} ${v.w.toFixed(2)} ${v.h.toFixed(2)}`);
+    const b = drawnBox(v);
+    svg.setAttribute("viewBox", `${b.x.toFixed(2)} ${b.y.toFixed(2)} ${b.w.toFixed(2)} ${b.h.toFixed(2)}`);
   }
   els.relief.style.visibility = "";
   positionRelief();
@@ -440,11 +441,12 @@ function cancelBox() {
   box = null;
 }
 
-els.selectArea.addEventListener("click", () => {
-  areaMode = !areaMode;
-  els.selectArea.setAttribute("aria-pressed", String(areaMode));
-  els.map.classList.toggle("area", areaMode);
-});
+els.selectArea.addEventListener("click", () => setAreaMode(!areaMode));
+function setAreaMode(on: boolean) {
+  areaMode = on;
+  els.selectArea.setAttribute("aria-pressed", String(on));
+  els.map.classList.toggle("area", on);
+}
 
 els.map.addEventListener("pointerdown", (e) => {
   if (e.button !== 0) return;
@@ -464,8 +466,10 @@ els.map.addEventListener("pointerdown", (e) => {
   }
   const el = editing ? (e.target as Element).closest<SVGGraphicsElement>("[data-key]") : null;
   const adding = e.shiftKey || e.ctrlKey || e.metaKey;
-  // Picking box: Shift-drag on empty map, or any drag in "Select area" mode.
-  if (editing && ((adding && !el) || areaMode)) {
+  // Picking box: Shift-drag on empty map, or a drag in "Select area" mode that does not
+  // start on an already picked item (those drag the group, as always).
+  const onPicked = !!el && picked.includes(el.dataset.key!);
+  if (editing && ((adding && !el) || (areaMode && !onPicked))) {
     zoom.track(e);
     const div = document.createElement("div");
     div.className = "pick-box";
@@ -545,6 +549,8 @@ const endDrag = (e: PointerEvent) => {
       picked = [...new Set([...(e.shiftKey || e.ctrlKey || e.metaKey ? picked : []), ...inside])];
       showSelection();
     }
+    // "Select area" is for one box: switch it off so the next drag moves what was picked.
+    setAreaMode(false);
     return;
   }
   if (!drag || drag.pointer !== e.pointerId) return;
@@ -690,6 +696,7 @@ function pasteClipboard(fromButton = false) {
   }
   commit(next);
   picked = keys;
+  setAreaMode(false);
   showSelection();
 }
 

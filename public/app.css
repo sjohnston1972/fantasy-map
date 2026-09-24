@@ -41,9 +41,11 @@ input[type="range"] { width: 100%; accent-color: var(--ink); }
 .map-frame { display: flex; justify-content: center; width: 100%; height: calc(100vh - 150px); }
 .map-box { position: relative; overflow: hidden; height: 100%; max-width: 100%; background: #fff; box-shadow: 0 1px 6px rgba(0,0,0,0.15); }
 .map, .map svg { display: block; width: 100%; height: 100%; }
-/* Drawing past the SVG's own edges lets a moving (zoomed or panned) map show what lies
-   beyond the last drawn view; the map box clips it. */
-.map svg { overflow: visible; transform-origin: 0 0; }
+/* The map is drawn a quarter of a view past each edge of the box (MARGIN in zoom.ts), on
+   its own graphics layer, so a drag or pinch only moves the picture already drawn. The
+   transform origin is the box's top-left corner (25% of 150%). */
+.map { position: relative; }
+.map svg { position: absolute; left: -25%; top: -25%; width: 150%; height: 150%; overflow: hidden; will-change: transform; transform-origin: 16.6667% 16.6667%; }
 .relief { position: absolute; inset: 0; width: 100%; height: 100%; mix-blend-mode: multiply; opacity: 0.55; pointer-events: none; }
 @media (max-width: 760px) { .map-frame { height: auto; } .map-box { height: auto; width: 100%; } }
 .check { display: flex; align-items: center; gap: 8px; font-size: 0.9rem; }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { clampView, fullView, MAX_ZOOM, panBy, previewTransform, zoomAt, zoomLevel } from "../src/app/zoom";
+import { clampView, drawnBox, fullView, MARGIN, MAX_ZOOM, panBy, previewTransform, zoomAt, zoomLevel } from "../src/app/zoom";
 
 const W = 1600;
 const H = 2263;
@@ -63,5 +63,12 @@ describe("moving preview", () => {
     const shown = [t.k * (before[0] + t.tx), t.k * (before[1] + t.ty)];
     expect(shown[0]).toBeCloseTo(((px - live.x) / live.w) * box[0]);
     expect(shown[1]).toBeCloseTo(((py - live.y) / live.h) * box[1]);
+  });
+});
+
+describe("drawn margin", () => {
+  it("draws a quarter of a view beyond each edge", () => {
+    expect(drawnBox({ x: 100, y: 200, w: 400, h: 600 })).toEqual({ x: 0, y: 50, w: 600, h: 900 });
+    expect(MARGIN).toBe(0.25); // app.css places the SVG at -25% and 150% to match
   });
 });
