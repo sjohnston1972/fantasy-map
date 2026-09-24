@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { decodeEdits, decodeSettings, encodeEdits, encodeSettings, fingerprint } from "../src/app/share";
-import { addSymbol, applyEdits, layer, move, NO_EDITS, remove, rename, swap } from "../src/gen/edits";
+import { addSymbol, applyEdits, layer, move, NO_EDITS, remove, rename, resize, swap } from "../src/gen/edits";
 import { generate } from "../src/gen/pipeline";
 import { cleanSettings, DEFAULT_SETTINGS, type MapSettings } from "../src/gen/settings";
 import { renderSvg } from "../src/gen/svg";
@@ -82,6 +82,7 @@ describe("edits in share links", () => {
     e = addSymbol(e, { role: "conifer", x: 812.34, y: 1003.21, w: 13.37, h: 21.9, variant: 0.3125, flip: true }).edits;
     e = move(e, "add:1", 3, 4);
     e = layer(map, e, "add:1", "back");
+    e = resize(resize(e, "add:1", 1.7), "label:4", 0.8);
     const code = await encodeEdits(e);
     expect(code).toMatch(/^[A-Za-z0-9_-]+$/);
     expect(await decodeEdits(code)).toEqual(e);
@@ -122,6 +123,7 @@ describe("edits in share links", () => {
       text: { "label:2": "Ok" },
       z: {},
       added: {},
+      scale: {},
     });
   });
 });

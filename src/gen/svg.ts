@@ -82,7 +82,7 @@ export function renderSvg(m: SvgInput): string {
       const bridge = pickSymbol(m.ink, "bridge", b.variant ?? hashVariant(b.cell, 2654435761));
       if (bridge) {
         // Drawn upright over the crossing, centred on the river.
-        const bw = 24 * px;
+        const bw = 24 * px * (b.size ?? 1);
         parts.push(`<g data-key="${key}" data-role="bridge">${defs.use(bridge, b.x, b.y + (bw * bridge.h) / bridge.w / 2, bw, bw, false, W)}</g>`);
         return;
       }
@@ -110,7 +110,7 @@ export function renderSvg(m: SvgInput): string {
   if (m.towns) {
     for (const l of m.towns.landmarks) {
       const icon = pickSymbol(m.ink, "landmark", l.variant ?? hashVariant(l.cell, 2246822519));
-      const lw = 30 * px;
+      const lw = 30 * px * (l.size ?? 1);
       const key = `landmark:${l.id}`;
       parts.push(icon ? `<g data-key="${key}" data-landmark="${l.id}">${defs.use(icon, l.x, l.y, lw, lw, false, W)}</g>` : `<g data-key="${key}" data-landmark="${l.id}"><path d="M${(l.x - 4 * px).toFixed(1)} ${l.y.toFixed(1)}V${(l.y - 14 * px).toFixed(1)}H${(l.x + 4 * px).toFixed(1)}V${l.y.toFixed(1)}Z" fill="#fff" stroke="${INK}" stroke-width="${(1.2 * px).toFixed(2)}"/></g>`);
     }
@@ -118,11 +118,11 @@ export function renderSvg(m: SvgInput): string {
       const key = `town:${p.id}`;
       const townIcon = pickSymbol(m.ink, p.tier, p.variant ?? hashVariant(p.cell, 2654435761));
       if (townIcon) {
-        const tw = (p.tier === "capital" ? 74 : p.tier === "town" ? 56 : 40) * px;
+        const tw = (p.tier === "capital" ? 74 : p.tier === "town" ? 56 : 40) * px * (p.size ?? 1);
         parts.push(`<g data-key="${key}" data-town="${p.id}" data-tier="${p.tier}">${defs.use(townIcon, p.x, p.y + tw * 0.12, tw, tw, false, W)}</g>`);
         continue;
       }
-      const r = (p.tier === "capital" ? 10 : p.tier === "town" ? 7.5 : 5) * px;
+      const r = (p.tier === "capital" ? 10 : p.tier === "town" ? 7.5 : 5) * px * (p.size ?? 1);
       const ring = p.tier === "capital" ? `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="${(r + 4 * px).toFixed(1)}" fill="none" stroke="${INK}" stroke-width="${(1.1 * px).toFixed(2)}"/>` : "";
       parts.push(`<g data-key="${key}" data-town="${p.id}" data-tier="${p.tier}"><circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="${r.toFixed(1)}" fill="${p.tier === "village" ? "#fff" : INK}" stroke="${INK}" stroke-width="${(1.3 * px).toFixed(2)}"/>${ring}</g>`);
     }
@@ -409,16 +409,17 @@ export function asDrawing(m: Pick<SvgInput, "width" | "symbols" | "towns" | "lab
   }
   if (kind === "town") {
     const p = m.towns!.places.find((p) => p.id === id)!;
-    const tw = (p.tier === "capital" ? 74 : p.tier === "town" ? 56 : 40) * px;
+    const tw = (p.tier === "capital" ? 74 : p.tier === "town" ? 56 : 40) * px * (p.size ?? 1);
     return { role: p.tier, x: p.x, y: p.y + tw * 0.12, w: tw, h: tw, variant: d.variant, flip: false };
   }
   if (kind === "landmark") {
     const l = m.towns!.landmarks.find((l) => l.id === id)!;
-    return { role: "landmark", x: l.x, y: l.y, w: 30 * px, h: 30 * px, variant: d.variant, flip: false };
+    const lw = 30 * px * (l.size ?? 1);
+    return { role: "landmark", x: l.x, y: l.y, w: lw, h: lw, variant: d.variant, flip: false };
   }
   if (kind === "bridge") {
     const b = m.towns!.bridges.find((b, k) => (b.index ?? k) === id)!;
-    const bw = 24 * px;
+    const bw = 24 * px * (b.size ?? 1);
     const icon = pickSymbol(m.ink, "bridge", d.variant);
     return { role: "bridge", x: b.x, y: b.y + (icon ? (bw * icon.h) / icon.w / 2 : 0), w: bw, h: bw, variant: d.variant, flip: false };
   }

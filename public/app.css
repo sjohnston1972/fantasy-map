@@ -108,3 +108,13 @@ input[type="range"] { width: 100%; accent-color: var(--ink); }
 /* Picking box for selecting several items. */
 .pick-box { position: absolute; border: 1.5px dashed var(--focus); background: color-mix(in srgb, var(--focus) 10%, transparent); pointer-events: none; }
 .map.editing.area { touch-action: none; cursor: crosshair; }
+
+/* Box around the picked items, with a resize handle on each corner. */
+.sel-box { position: absolute; border: 1.5px dashed var(--focus); pointer-events: none; box-sizing: border-box; }
+.sel-box[hidden] { display: none; }
+.sel-box [data-corner] { position: absolute; width: 12px; height: 12px; background: #fff; border: 2px solid var(--focus); border-radius: 2px; pointer-events: auto; touch-action: none; }
+.sel-box [data-corner="nw"] { left: -7px; top: -7px; cursor: nwse-resize; }
+.sel-box [data-corner="se"] { right: -7px; bottom: -7px; cursor: nwse-resize; }
+.sel-box [data-corner="ne"] { right: -7px; top: -7px; cursor: nesw-resize; }
+.sel-box [data-corner="sw"] { left: -7px; bottom: -7px; cursor: nesw-resize; }
+@media (pointer: coarse) { .sel-box [data-corner] { width: 22px; height: 22px; } .sel-box [data-corner="nw"], .sel-box [data-corner="sw"] { left: -12px; } .sel-box [data-corner="ne"], .sel-box [data-corner="se"] { right: -12px; } .sel-box [data-corner="nw"], .sel-box [data-corner="ne"] { top: -12px; } .sel-box [data-corner="sw"], .sel-box [data-corner="se"] { bottom: -12px; } }

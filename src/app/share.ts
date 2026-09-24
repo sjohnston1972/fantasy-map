@@ -14,7 +14,7 @@
 // The sliders work in whole per cents, so the per cent values round-trip exactly and the
 // map rebuilt from a code is the same map.
 
-import { NO_EDITS, type Edits } from "../gen/edits";
+import { MAX_SCALE, MIN_SCALE, NO_EDITS, type Edits } from "../gen/edits";
 import { cleanSettings, type MapSettings } from "../gen/settings";
 
 const SHAPES: Record<string, [number, number]> = { p: [1600, 2263], l: [2263, 1600] };
@@ -80,13 +80,13 @@ const longKey = (k: string): string | null => {
 const mapKeys = <T>(r: Record<string, T>, f: (k: string) => string | null) => Object.fromEntries(Object.entries(r).flatMap(([k, v]) => (f(k) ? [[f(k)!, v]] : [])));
 
 export function isEmptyEdits(e: Edits): boolean {
-  return !e.deleted.length && ![e.moved, e.variant, e.text, e.z, e.added].some((r) => Object.keys(r).length);
+  return !e.deleted.length && ![e.moved, e.variant, e.text, e.z, e.added, e.scale].some((r) => Object.keys(r).length);
 }
 
 export async function encodeEdits(e: Edits): Promise<string> {
   if (isEmptyEdits(e)) return "";
   const added = Object.fromEntries(Object.entries(e.added).map(([k, a]) => [shortKey(k), [a.role, a.x, a.y, a.w, a.h, a.variant, a.flip ? 1 : 0]]));
-  const compact = { m: mapKeys(e.moved, shortKey), d: e.deleted.map(shortKey), v: mapKeys(e.variant, shortKey), t: mapKeys(e.text, shortKey), z: mapKeys(e.z, shortKey), a: added };
+  const compact = { m: mapKeys(e.moved, shortKey), d: e.deleted.map(shortKey), v: mapKeys(e.variant, shortKey), t: mapKeys(e.text, shortKey), z: mapKeys(e.z, shortKey), a: added, r: mapKeys(e.scale, shortKey) };
   const bytes = new Uint8Array(await new Response(new Blob([JSON.stringify(compact)]).stream().pipeThrough(new CompressionStream("deflate-raw"))).arrayBuffer());
   let s = "";
   for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
@@ -114,7 +114,7 @@ export async function decodeEdits(code: string): Promise<Edits | null> {
     const raw = JSON.parse(new TextDecoder().decode(await new Blob(chunks).arrayBuffer())) as Record<string, unknown>;
     const obj = (v: unknown) => (v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {});
     const num = (v: unknown, lo: number, hi: number) => (typeof v === "number" && Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : null);
-    const e: Edits = { moved: {}, deleted: [], variant: {}, text: {}, z: {}, added: {} };
+    const e: Edits = { moved: {}, deleted: [], variant: {}, text: {}, z: {}, added: {}, scale: {} };
     let count = 0;
     const room = () => ++count <= MAX_EDITS;
     for (const [k, v] of Object.entries(obj(raw.m))) {
@@ -140,6 +140,11 @@ export async function decodeEdits(code: string): Promise<Edits | null> {
       const key = longKey(k);
       const n = num(v, -1e9, 1e9);
       if (key && /^(sym|add):/.test(key) && n !== null && room()) e.z[key] = n;
+    }
+    for (const [k, v] of Object.entries(obj(raw.r))) {
+      const key = longKey(k);
+      const n = num(v, MIN_SCALE, MAX_SCALE);
+      if (key && n !== null && room()) e.scale[key] = n;
     }
     for (const [k, v] of Object.entries(obj(raw.a))) {
       const key = longKey(k);

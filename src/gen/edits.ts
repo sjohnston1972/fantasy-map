@@ -9,6 +9,9 @@
 // place in that order is its layer: its original position unless the visitor brought it
 // forward or sent it back, which is how a range of peaks or a forest edge is built up.
 //
+// Resizing: any drawn item or name can be made bigger or smaller ("scale", 1 = as drawn).
+// It grows or shrinks around its own base, so it stays standing where it was.
+//
 // Added symbols: any drawing from the symbol library can be placed on the map ("add:1",
 // "add:2", ...). They are kept in the edits like every other change, go in front of the
 // generated symbols, and can then be moved, swapped, layered or deleted the same way.
@@ -36,9 +39,13 @@ export interface Edits {
   text: Record<string, string>; // label key -> new wording
   z: Record<string, number>; // symbol key -> layer (higher is in front); default is its number
   added: Record<string, AddedSymbol>; // "add:N" -> a symbol placed by the visitor
+  scale: Record<string, number>; // key -> size multiplier (1 = as drawn)
 }
 
-export const NO_EDITS: Edits = { moved: {}, deleted: [], variant: {}, text: {}, z: {}, added: {} };
+export const NO_EDITS: Edits = { moved: {}, deleted: [], variant: {}, text: {}, z: {}, added: {}, scale: {} };
+
+export const MIN_SCALE = 0.2;
+export const MAX_SCALE = 5;
 
 // Keys of items drawn as symbols (generated or added): these can be layered.
 export const isSymbolKey = (key: string | null | undefined): key is string => !!key && /^(sym|add):\d+$/.test(key);
@@ -58,18 +65,21 @@ export type EditedMap = Pick<GeneratedMap, "settings" | "water"> & {
 export function applyEdits(m: GeneratedMap, e: Edits): EditedMap {
   const gone = new Set(e.deleted);
   const shift = (key: string) => e.moved[key] ?? [0, 0];
+  const size = (key: string) => e.scale?.[key] ?? 1;
 
   const layered: { s: PlacedSymbol; z: number }[] = [];
   m.symbols.forEach((s, k) => {
     const key = `sym:${k}`;
     if (gone.has(key)) return;
     const [dx, dy] = shift(key);
-    layered.push({ s: { ...s, x: s.x + dx, y: s.y + dy, variant: e.variant[key] ?? s.variant, key }, z: e.z?.[key] ?? k });
+    const r = size(key);
+    layered.push({ s: { ...s, x: s.x + dx, y: s.y + dy, w: s.w * r, h: s.h * r, variant: e.variant[key] ?? s.variant, key }, z: e.z?.[key] ?? k });
   });
   for (const [key, a] of Object.entries(e.added ?? {})) {
     if (gone.has(key)) continue;
     const [dx, dy] = shift(key);
-    layered.push({ s: { ...a, role: a.role as PlacedSymbol["role"], x: a.x + dx, y: a.y + dy, variant: e.variant[key] ?? a.variant, key }, z: e.z?.[key] ?? defaultZ(key) });
+    const r = size(key);
+    layered.push({ s: { ...a, role: a.role as PlacedSymbol["role"], x: a.x + dx, y: a.y + dy, w: a.w * r, h: a.h * r, variant: e.variant[key] ?? a.variant, key }, z: e.z?.[key] ?? defaultZ(key) });
   }
   // Sort is stable, so symbols without a layer change keep the generator's order.
   const symbols = layered.sort((a, b) => a.z - b.z).map((l) => l.s);
@@ -80,20 +90,20 @@ export function applyEdits(m: GeneratedMap, e: Edits): EditedMap {
       .filter((p) => !gone.has(`town:${p.id}`))
       .map((p) => {
         const [dx, dy] = shift(`town:${p.id}`);
-        return { ...p, x: p.x + dx, y: p.y + dy, variant: e.variant[`town:${p.id}`] };
+        return { ...p, x: p.x + dx, y: p.y + dy, variant: e.variant[`town:${p.id}`], size: e.scale?.[`town:${p.id}`] };
       }),
     landmarks: m.towns.landmarks
       .filter((l) => !gone.has(`landmark:${l.id}`))
       .map((l) => {
         const [dx, dy] = shift(`landmark:${l.id}`);
-        return { ...l, x: l.x + dx, y: l.y + dy, variant: e.variant[`landmark:${l.id}`] };
+        return { ...l, x: l.x + dx, y: l.y + dy, variant: e.variant[`landmark:${l.id}`], size: e.scale?.[`landmark:${l.id}`] };
       }),
     bridges: m.towns.bridges
       .map((b, k) => ({ b, k }))
       .filter(({ k }) => !gone.has(`bridge:${k}`))
       .map(({ b, k }) => {
         const [dx, dy] = shift(`bridge:${k}`);
-        return { ...b, x: b.x + dx, y: b.y + dy, variant: e.variant[`bridge:${k}`], index: k };
+        return { ...b, x: b.x + dx, y: b.y + dy, variant: e.variant[`bridge:${k}`], index: k, size: e.scale?.[`bridge:${k}`] };
       }),
   };
 
@@ -103,15 +113,20 @@ export function applyEdits(m: GeneratedMap, e: Edits): EditedMap {
       const key = `label:${l.id}`;
       const [dx, dy] = shift(key);
       const text = e.text[key] ?? l.text;
-      const w = text === l.text ? l.box.w : textWidth(text, l.size, l.caps, l.spacing);
-      // Keep the anchor point where it was when the wording changes.
+      const r = size(key);
+      const fontSize = l.size * r;
+      const w = text === l.text && r === 1 ? l.box.w : textWidth(text, fontSize, l.caps, l.spacing);
+      // Keep the anchor point where it was when the wording or size changes; the lettering
+      // grows up from its baseline.
       const bx = l.anchor === "start" ? l.box.x : l.anchor === "end" ? l.box.x + l.box.w - w : l.box.x + (l.box.w - w) / 2;
+      const h = l.box.h * r;
       return {
         ...l,
         text,
+        size: fontSize,
         x: l.x + dx,
         y: l.y + dy,
-        box: { x: bx + dx, y: l.box.y + dy, w, h: l.box.h },
+        box: { x: bx + dx, y: l.box.y + l.box.h - h + dy, w, h },
         path: l.path?.map(([x, y]) => [x + dx, y + dy] as [number, number]),
       };
     });
@@ -121,7 +136,7 @@ export function applyEdits(m: GeneratedMap, e: Edits): EditedMap {
     .filter(({ k }) => !gone.has(`emblem:${k}`))
     .map(({ em, k }) => {
       const [dx, dy] = shift(`emblem:${k}`);
-      return { ...em, x: em.x + dx, y: em.y + dy, variant: e.variant[`emblem:${k}`] ?? em.variant, index: k };
+      return { ...em, x: em.x + dx, y: em.y + dy, w: em.w * size(`emblem:${k}`), variant: e.variant[`emblem:${k}`] ?? em.variant, index: k };
     });
 
   return { settings: m.settings, water: m.water, symbols, towns, labels: { ...m.labels, labels, emblems, symbols } };
@@ -133,6 +148,18 @@ export function move(e: Edits, key: string, dx: number, dy: number): Edits {
   // Kept to a tenth of a pixel, so edits stay short when written into a share link.
   const r = (v: number) => Math.round(v * 10) / 10;
   return { ...e, moved: { ...e.moved, [key]: [r(x + dx), r(y + dy)] } };
+}
+
+// Make an item bigger (factor above 1) or smaller, within MIN_SCALE and MAX_SCALE of its
+// drawn size. Kept to two decimals for short links.
+export function resize(e: Edits, key: string, factor: number): Edits {
+  const now = e.scale?.[key] ?? 1;
+  const next = Math.round(Math.min(MAX_SCALE, Math.max(MIN_SCALE, now * factor)) * 100) / 100;
+  if (next === now) return e;
+  const scale = { ...e.scale };
+  if (next === 1) delete scale[key];
+  else scale[key] = next;
+  return { ...e, scale };
 }
 
 export function remove(e: Edits, key: string): Edits {
@@ -154,7 +181,7 @@ export function rename(e: Edits, key: string, text: string): Edits {
 }
 
 export function editCount(e: Edits): number {
-  return Object.keys(e.moved).length + e.deleted.length + Object.keys(e.variant).length + Object.keys(e.text).length + Object.keys(e.z ?? {}).length + Object.keys(e.added ?? {}).length;
+  return Object.keys(e.moved).length + e.deleted.length + Object.keys(e.variant).length + Object.keys(e.text).length + Object.keys(e.z ?? {}).length + Object.keys(e.added ?? {}).length + Object.keys(e.scale ?? {}).length;
 }
 
 // Place a new symbol. Values are rounded so they survive a share link exactly.

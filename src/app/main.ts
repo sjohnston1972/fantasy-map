@@ -5,7 +5,7 @@ import { generate, type GeneratedMap } from "../gen/pipeline";
 import { renderRelief } from "../gen/render";
 import { toInkSet, type InkSet, type InkSymbol } from "../gen/inkset";
 import { asDrawing, drawingOf, drawnBoxOf, frameFor, renderSvg } from "../gen/svg";
-import { addSymbol, applyEdits, editCount, isSymbolKey, layer, move, NO_EDITS, remove, rename, swap, type AddedSymbol, type EditedMap, type Edits, type LayerMove } from "../gen/edits";
+import { addSymbol, applyEdits, editCount, isSymbolKey, layer, move, NO_EDITS, remove, rename, resize, swap, type AddedSymbol, type EditedMap, type Edits, type LayerMove } from "../gen/edits";
 import { embeddedFontCss, pngSize, saveBlob, svgToPng, svgToThumb, toBase64 } from "./export";
 import { saveMyMap } from "./mymaps";
 import { drawnBox, MapZoom, MAX_ZOOM, previewTransform, type View } from "./zoom";
@@ -67,6 +67,9 @@ const els = {
   cut: $<HTMLButtonElement>("#cut"),
   paste: $<HTMLButtonElement>("#paste"),
   selectArea: $<HTMLButtonElement>("#select-area"),
+  smaller: $<HTMLButtonElement>("#smaller"),
+  bigger: $<HTMLButtonElement>("#bigger"),
+  selBox: $<HTMLElement>("#sel-box"),
   palette: $<HTMLElement>("#palette"),
   palRole: $<HTMLSelectElement>("#pal-role"),
   palSize: $<HTMLInputElement>("#pal-size"),
@@ -237,6 +240,7 @@ function applyView(v: View) {
   els.relief.style.visibility = "";
   positionRelief();
   showZoomState();
+  placeSelBox();
 }
 
 // Mid-gesture: move the picture already drawn instead of redrawing the map.
@@ -247,6 +251,7 @@ function previewView(drawn: View, live: View) {
   const t = previewTransform(drawn, live, r.width, r.height);
   svg.style.transform = `scale(${t.k}) translate3d(${t.tx}px, ${t.ty}px, 0)`;
   els.relief.style.visibility = "hidden"; // shown again, lined up, when the map is redrawn
+  els.selBox.hidden = true; // likewise
   showZoomState();
 }
 
@@ -478,6 +483,8 @@ function showSelection() {
     return !!d && (ink?.[d.role]?.length ?? 0) >= 2;
   });
   els.del.disabled = !picked.length;
+  els.smaller.disabled = els.bigger.disabled = !picked.length;
+  placeSelBox();
   els.forward.disabled = els.backward.disabled = !picked.some(isSymbolKey);
   els.swap.disabled = !swappable;
   els.copy.disabled = els.cut.disabled = !picked.some((key) => !key.startsWith("label:"));
@@ -584,6 +591,7 @@ els.map.addEventListener("pointerdown", (e) => {
     return it ? [{ key: k, el: it, base: it.getAttribute("transform") ?? "" }] : [];
   });
   drag = { pointer: e.pointerId, x: e.clientX, y: e.clientY, scale, items, dx: 0, dy: 0 };
+  els.selBox.hidden = true;
   capture(e);
   e.preventDefault();
 });
@@ -639,6 +647,7 @@ const endDrag = (e: PointerEvent) => {
   // Ignore the tiny wobble of a click.
   if (Math.hypot(dx, dy) > 3 * scale) movePicked(items.map((it) => it.key), dx, dy, true);
   else for (const it of items) it.base ? it.el.setAttribute("transform", it.base) : it.el.removeAttribute("transform");
+  placeSelBox();
 };
 els.map.addEventListener("pointerup", endDrag);
 els.map.addEventListener("pointercancel", endDrag);
@@ -705,6 +714,8 @@ document.addEventListener("keydown", (e) => {
   else if (e.code === "BracketRight") layerSelected(e.shiftKey ? "front" : "forward");
   else if (e.code === "BracketLeft") layerSelected(e.shiftKey ? "back" : "backward");
   else if (nudge[e.key]) movePicked(picked, ...nudge[e.key], false);
+  else if (e.key === "." || e.key === ">") resizeInPlace(1.15);
+  else if (e.key === "," || e.key === "<") resizeInPlace(1 / 1.15);
   else return;
   e.preventDefault();
 });
@@ -1015,4 +1026,127 @@ function placeAt(clientX: number, clientY: number) {
   const { edits: next, key } = addSymbol(edits, { role: placing.role, x: mx, y: my + h / 2, w, h, variant: (index + 0.5) / list.length, flip: vary ? Math.random() < 0.5 : false });
   commit(next);
   select(key);
+}
+
+// ---- Resizing ----
+// Picked items get a dashed box with a handle on each corner. Dragging a handle resizes
+// everything inside, with the opposite corner staying put, as in a drawing program. The
+// Smaller and Bigger buttons (and the , and . keys) resize each item in place instead.
+
+els.smaller.addEventListener("click", () => resizeInPlace(1 / 1.15));
+els.bigger.addEventListener("click", () => resizeInPlace(1.15));
+
+function resizeInPlace(factor: number) {
+  if (!picked.length) return;
+  forPicked((e, key) => resize(e, key, factor));
+}
+
+// Where an item stands on the map (the point its position edits move), in map pixels.
+function anchorOf(key: string): { x: number; y: number } | null {
+  if (!edited) return null;
+  const [kind, idText] = key.split(":");
+  const id = Number(idText);
+  if (kind === "sym" || kind === "add") return edited.symbols.find((s) => s.key === key) ?? null;
+  if (kind === "town") return edited.towns.places.find((p) => p.id === id) ?? null;
+  if (kind === "landmark") return edited.towns.landmarks.find((l) => l.id === id) ?? null;
+  if (kind === "bridge") return edited.towns.bridges.find((b, k) => (b.index ?? k) === id) ?? null;
+  if (kind === "emblem") return edited.labels.emblems.find((e, k) => (e.index ?? k) === id) ?? null;
+  if (kind === "label") return edited.labels.labels.find((l) => l.id === id) ?? null;
+  return null;
+}
+
+// Screen point to map pixels.
+function screenToMap(x: number, y: number): { x: number; y: number } {
+  const { width: W, height: H } = current!.settings;
+  const fr = frameFor(W, H);
+  const p = zoom.toMap(x, y);
+  return { x: (p.x - fr.dx) / fr.scale, y: (p.y - fr.dy) / fr.scale };
+}
+
+// The screen box around the picked items.
+function pickedRect(): DOMRect | null {
+  let l = Infinity, t = Infinity, r = -Infinity, b = -Infinity;
+  for (const key of picked) {
+    const rect = itemEl(key)?.getBoundingClientRect();
+    if (!rect || rect.width + rect.height === 0) continue;
+    l = Math.min(l, rect.left);
+    t = Math.min(t, rect.top);
+    r = Math.max(r, rect.right);
+    b = Math.max(b, rect.bottom);
+  }
+  return l < r ? new DOMRect(l, t, r - l, b - t) : null;
+}
+
+function placeSelBox(rect = editing && !drag && !resizing ? pickedRect() : null) {
+  if (!rect) {
+    els.selBox.hidden = true;
+    return;
+  }
+  const box = els.mapBox.getBoundingClientRect();
+  els.selBox.hidden = false;
+  Object.assign(els.selBox.style, { left: `${rect.left - box.left}px`, top: `${rect.top - box.top}px`, width: `${rect.width}px`, height: `${rect.height}px` });
+}
+
+let resizing: { pointer: number; fixed: { x: number; y: number }; start: { x: number; y: number }; rect: DOMRect; items: { key: string; el: SVGGraphicsElement; base: string }[]; factor: number } | null = null;
+
+for (const handle of els.selBox.querySelectorAll<HTMLElement>("[data-corner]")) {
+  handle.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0 || !picked.length) return;
+    e.stopPropagation();
+    e.preventDefault();
+    const rect = pickedRect();
+    if (!rect) return;
+    const corner = handle.dataset.corner!; // nw, ne, sw or se: the corner being dragged
+    const fixed = { x: corner.includes("w") ? rect.right : rect.left, y: corner.includes("n") ? rect.bottom : rect.top };
+    const start = { x: corner.includes("w") ? rect.left : rect.right, y: corner.includes("n") ? rect.top : rect.bottom };
+    const items = picked.flatMap((key) => {
+      const el = itemEl(key);
+      return el ? [{ key, el, base: el.getAttribute("transform") ?? "" }] : [];
+    });
+    resizing = { pointer: e.pointerId, fixed, start, rect, items, factor: 1 };
+    try {
+      handle.setPointerCapture(e.pointerId);
+    } catch {
+      // The pointer has already gone.
+    }
+  });
+  handle.addEventListener("pointermove", (e) => {
+    if (!resizing || resizing.pointer !== e.pointerId) return;
+    const { fixed, start, rect, items } = resizing;
+    // How far along the box's diagonal the pointer is, from the fixed corner.
+    const dx = start.x - fixed.x;
+    const dy = start.y - fixed.y;
+    const f = Math.min(8, Math.max(0.1, ((e.clientX - fixed.x) * dx + (e.clientY - fixed.y) * dy) / (dx * dx + dy * dy)));
+    resizing.factor = f;
+    const c = screenToMap(fixed.x, fixed.y);
+    for (const it of items) it.el.setAttribute("transform", `translate(${c.x.toFixed(2)} ${c.y.toFixed(2)}) scale(${f.toFixed(4)}) translate(${(-c.x).toFixed(2)} ${(-c.y).toFixed(2)}) ${it.base}`.trim());
+    // The box follows, scaled about the same corner.
+    const l = fixed.x + (rect.left - fixed.x) * f;
+    const r = fixed.x + (rect.right - fixed.x) * f;
+    const t = fixed.y + (rect.top - fixed.y) * f;
+    const b = fixed.y + (rect.bottom - fixed.y) * f;
+    placeSelBox(new DOMRect(Math.min(l, r), Math.min(t, b), Math.abs(r - l), Math.abs(b - t)));
+  });
+  const end = (e: PointerEvent) => {
+    if (!resizing || resizing.pointer !== e.pointerId) return;
+    const { fixed, items, factor } = resizing;
+    resizing = null;
+    if (Math.abs(factor - 1) < 0.01) {
+      for (const it of items) it.base ? it.el.setAttribute("transform", it.base) : it.el.removeAttribute("transform");
+      placeSelBox();
+      return;
+    }
+    // Each item grows by the factor, and its standing point moves away from (or towards)
+    // the fixed corner by the same factor, so the whole group scales about that corner.
+    const c = screenToMap(fixed.x, fixed.y);
+    let next = edits;
+    for (const { key } of items) {
+      const a = anchorOf(key);
+      next = resize(next, key, factor);
+      if (a) next = move(next, key, (a.x - c.x) * (factor - 1), (a.y - c.y) * (factor - 1));
+    }
+    commit(next);
+  };
+  handle.addEventListener("pointerup", end);
+  handle.addEventListener("pointercancel", end);
 }

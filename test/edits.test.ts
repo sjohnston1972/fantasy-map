@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { pngSize, toBase64 } from "../src/app/export";
-import { addSymbol, applyEdits, editCount, isSymbolKey, layer, move, NO_EDITS, remove, rename, swap, type EditedMap } from "../src/gen/edits";
+import { addSymbol, applyEdits, editCount, isSymbolKey, layer, MAX_SCALE, MIN_SCALE, move, NO_EDITS, remove, rename, resize, swap, type EditedMap } from "../src/gen/edits";
 import { boxesOverlap, symBox } from "../src/gen/labels";
 import { toInkSet } from "../src/gen/inkset";
 import { generate } from "../src/gen/pipeline";
@@ -88,7 +88,7 @@ describe("light editing (spec: move, delete or swap a symbol; rename, move or de
     const b = remove(a, "sym:2");
     expect(a.deleted).toEqual([]);
     expect(editCount(b)).toBe(2);
-    expect(NO_EDITS).toEqual({ moved: {}, deleted: [], variant: {}, text: {}, z: {}, added: {} });
+    expect(NO_EDITS).toEqual({ moved: {}, deleted: [], variant: {}, text: {}, z: {}, added: {}, scale: {} });
   });
 
   it("reuses the drawn ground between edits", () => {
@@ -217,6 +217,47 @@ describe("copy and paste", () => {
       copy.box.forEach((v, i) => expect(Math.abs(v - orig.box[i]), key).toBeLessThanOrEqual(0.2));
     }
     expect(asDrawing(input, `label:${m.labels.labels[0].id}`)).toBeNull();
+  });
+});
+
+describe("resizing", () => {
+  it("makes a symbol bigger or smaller, standing where it was", () => {
+    const s = map.symbols[3];
+    const m = applyEdits(map, resize(NO_EDITS, "sym:3", 2));
+    expect(m.symbols[3]).toMatchObject({ x: s.x, y: s.y, w: s.w * 2, h: s.h * 2 });
+    expect(applyEdits(map, resize(resize(NO_EDITS, "sym:3", 2), "sym:3", 0.5)).symbols[3].w).toBeCloseTo(s.w);
+  });
+
+  it("keeps sizes within limits and forgets a size back at 1", () => {
+    expect(resize(NO_EDITS, "sym:1", 100).scale["sym:1"]).toBe(MAX_SCALE);
+    expect(resize(NO_EDITS, "sym:1", 0.001).scale["sym:1"]).toBe(MIN_SCALE);
+    expect(resize(resize(NO_EDITS, "sym:1", 2), "sym:1", 0.5).scale).toEqual({});
+    expect(resize(NO_EDITS, "sym:1", 1)).toBe(NO_EDITS);
+  });
+
+  it("resizes towns, banners and names too", () => {
+    const p = map.towns.places[0];
+    const l = map.labels.labels.find((x) => !x.path)!;
+    let e = resize(NO_EDITS, `town:${p.id}`, 1.5);
+    e = resize(e, "emblem:0", 2);
+    e = resize(e, `label:${l.id}`, 2);
+    const m = applyEdits(map, e);
+    const before = svgOf(applyEdits(map, NO_EDITS));
+    const after = svgOf(m);
+    const width = (svg: string, key: string) => Number(item(svg, key)!.match(/<use href="[^"]+" x="[^"]+" y="[^"]+" width="([^"]+)"/)![1]);
+    expect(width(after, `town:${p.id}`)).toBeCloseTo(width(before, `town:${p.id}`) * 1.5, 0);
+    expect(m.labels.emblems[0].w).toBeCloseTo(map.labels.emblems[0].w * 2);
+    const label = m.labels.labels.find((x) => x.id === l.id)!;
+    expect(label.size).toBeCloseTo(l.size * 2);
+    expect(label.box.y + label.box.h).toBeCloseTo(l.box.y + l.box.h); // grows up from its baseline
+    expect(item(after, `label:${l.id}`)).toContain(`font-size="${(l.size * 2).toFixed(1)}"`);
+  });
+
+  it("resizes copies of resized items at their new size", () => {
+    const e = resize(NO_EDITS, "emblem:0", 2);
+    const m = applyEdits(map, e);
+    const d = asDrawing({ width: map.settings.width, symbols: m.symbols, towns: m.towns, labels: m.labels, ink }, "emblem:0")!;
+    expect(d.w).toBeCloseTo(map.labels.emblems[0].w * 2);
   });
 });
 

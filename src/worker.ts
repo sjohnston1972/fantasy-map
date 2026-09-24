@@ -13,7 +13,7 @@ export default {
     const url = new URL(request.url);
 
     if (url.pathname === "/api/health") {
-      return Response.json({ ok: true, app: "fantasy-map", version: "0.14.1" });
+      return Response.json({ ok: true, app: "fantasy-map", version: "0.15.0" });
     }
 
     if (url.pathname.startsWith("/api/import/")) {
