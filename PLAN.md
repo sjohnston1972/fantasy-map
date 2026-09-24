@@ -1,6 +1,6 @@
 # Run plan: split the map page code into modules
 
-**Goal.** `src/app/main.ts` (about 1,330 lines) holds the whole map page: generating and
+**Goal.** `src/app/main.ts` (about 1,650 lines) holds the whole map page: generating and
 drawing, zoom wiring, picking, dragging, box select, keyboard, clipboard, palette, resizing,
 history, sharing, export and the gallery buttons. Split it into focused modules so future
 changes are safer. **No behaviour changes**: the page must look and work exactly as before.
@@ -37,7 +37,8 @@ changes are safer. **No behaviour changes**: the page must look and work exactly
 3. **Shared state → `src/app/state.ts`.** One exported `state` object holding what the
    modules share: `settings`, `current`, `ink`, `edits`, `edited`, `undoStack`,
    `redoStack`, `picked`, `editing`, `placing`, `hitList`, `drag`, `box`, `resizing`,
-   `areaMode`, `clipboard`, `lastPointer`, `linkEdits`, and the `zoom` instance. Replace the
+   `areaMode`, `clipboard`, `lastPointer`, `linkEdits`, `manifest`, `loading`, `sprites`,
+   `spritesShown`, and the `zoom` instance. Replace the
    module-level `let`s in `main.ts` with `state.<name>`.
    *Done when:* the step checks pass and `grep -cE '^let ' src/app/main.ts` is at most 3.
 
@@ -71,13 +72,19 @@ changes are safer. **No behaviour changes**: the page must look and work exactly
    edit-mode button).
    *Done when:* the step checks pass and both files exist.
 
+8b. **Symbol loading → `src/app/ink.ts`**: `loadInk`, `loadKinds`, `usedKinds`,
+   `CORE_KINDS`, `buildSprites`, `spritesWanted` (the pictures themselves stay in
+   `sprites.ts`).
+   *Done when:* the step checks pass and `grep -c 'function loadKinds' src/app/ink.ts` is 1.
+
 9. **Sharing, export and keeping → `src/app/panels.ts`**: the share link (`updateLink`,
    Copy link), SVG and PNG export buttons, Save to My maps and Publish.
    *Done when:* the step checks pass and `grep -c 'updateLink' src/app/panels.ts` is at
    least 1.
 
 10. **What is left in `main.ts`:** startup (reading the link), the settings form (including
-    the Border choice, which redraws without generating),
+    the Border and Coast choices, which redraw without generating, and the sliders, which
+    regenerate when let go),
     `draw`, `paint`, `svgFor`, the relief overlay, `applyView` and `previewView`, and the
     calls to the `init...()` functions, with a short comment at the top listing the
     modules and what each does.
