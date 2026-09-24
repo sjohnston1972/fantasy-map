@@ -8,7 +8,7 @@ import { drawingOf, frameFor, renderSvg } from "../gen/svg";
 import { addSymbol, applyEdits, editCount, isSymbolKey, layer, move, NO_EDITS, remove, rename, swap, type EditedMap, type Edits, type LayerMove } from "../gen/edits";
 import { embeddedFontCss, pngSize, saveBlob, svgToPng, svgToThumb, toBase64 } from "./export";
 import { saveMyMap } from "./mymaps";
-import { MapZoom, MAX_ZOOM, type View } from "./zoom";
+import { MapZoom, MAX_ZOOM, previewTransform, type View } from "./zoom";
 import { decodeEdits, decodeSettings, encodeEdits, encodeSettings, fingerprint } from "./share";
 import { randomSeed } from "../gen/rng";
 import { cleanSettings, DEFAULT_SETTINGS, type MapSettings } from "../gen/settings";
@@ -75,7 +75,7 @@ const els = {
 
 // Zoom and pan (src/app/zoom.ts). The view survives redraws of the same map size, so a
 // slider can be tried on the part of the map being looked at.
-const zoom = new MapZoom(els.map, applyView);
+const zoom = new MapZoom(els.map, applyView, previewView);
 
 // A share link (?map=code) opens the map it names; otherwise the page starts on a new seed.
 const params = new URLSearchParams(location.search);
@@ -220,8 +220,28 @@ function paint(map: GeneratedMap) {
 // Show the zoomed view: the SVG's window onto the map, the relief lined up with it, and the
 // zoom controls' state.
 function applyView(v: View) {
-  els.map.querySelector("svg")?.setAttribute("viewBox", `${v.x.toFixed(2)} ${v.y.toFixed(2)} ${v.w.toFixed(2)} ${v.h.toFixed(2)}`);
+  const svg = els.map.querySelector("svg");
+  if (svg) {
+    svg.style.transform = "";
+    svg.setAttribute("viewBox", `${v.x.toFixed(2)} ${v.y.toFixed(2)} ${v.w.toFixed(2)} ${v.h.toFixed(2)}`);
+  }
+  els.relief.style.visibility = "";
   positionRelief();
+  showZoomState();
+}
+
+// Mid-gesture: move the picture already drawn instead of redrawing the map.
+function previewView(drawn: View, live: View) {
+  const svg = els.map.querySelector("svg");
+  if (!svg) return;
+  const r = els.map.getBoundingClientRect();
+  const t = previewTransform(drawn, live, r.width, r.height);
+  svg.style.transform = `scale(${t.k}) translate3d(${t.tx}px, ${t.ty}px, 0)`;
+  els.relief.style.visibility = "hidden"; // shown again, lined up, when the map is redrawn
+  showZoomState();
+}
+
+function showZoomState() {
   const level = zoom.level;
   els.zoomLevel.value = `${Math.round(level * 100)}%`;
   els.zoomIn.disabled = level >= MAX_ZOOM - 0.001;

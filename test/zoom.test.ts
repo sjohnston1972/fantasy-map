@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { clampView, fullView, MAX_ZOOM, panBy, zoomAt, zoomLevel } from "../src/app/zoom";
+import { clampView, fullView, MAX_ZOOM, panBy, previewTransform, zoomAt, zoomLevel } from "../src/app/zoom";
 
 const W = 1600;
 const H = 2263;
@@ -43,5 +43,25 @@ describe("zoom and pan", () => {
     const back = panBy(v, W, H, -99999, -99999);
     expect([back.x, back.y]).toEqual([0, 0]);
     expect(clampView({ x: -50, y: -50, w: W * 2, h: 10 }, W, H)).toEqual(fullView(W, H));
+  });
+});
+
+describe("moving preview", () => {
+  it("shows the live view by shifting and scaling the last drawn one", () => {
+    const drawn = { x: 400, y: 600, w: 400, h: 400 * (H / W) };
+    const box = [500, 500 * (H / W)] as const;
+    // Panned right by 40 map pixels: the picture shifts left by 40/400 of the box.
+    const pan = previewTransform(drawn, { ...drawn, x: 440 }, box[0], box[1]);
+    expect(pan.k).toBe(1);
+    expect(pan.tx).toBeCloseTo(-50);
+    expect(pan.ty).toBeCloseTo(0);
+    // A map point lands where the live view would draw it.
+    const live = zoomAt(drawn, W, H, 2, 500, 700);
+    const t = previewTransform(drawn, live, box[0], box[1]);
+    const [px, py] = [520, 760];
+    const before = [((px - drawn.x) / drawn.w) * box[0], ((py - drawn.y) / drawn.h) * box[1]];
+    const shown = [t.k * (before[0] + t.tx), t.k * (before[1] + t.ty)];
+    expect(shown[0]).toBeCloseTo(((px - live.x) / live.w) * box[0]);
+    expect(shown[1]).toBeCloseTo(((py - live.y) / live.h) * box[1]);
   });
 });
