@@ -15,7 +15,8 @@ const packs = await Promise.all(Object.values(manifest.packs).map(async (name) =
 const ink = toInkSet(packs);
 
 const t0 = performance.now();
-const m = generate({ seed: Number(seedArg ?? 482913) });
+// GEN_V=1 renders with an older generator version, to compare.
+const m = generate({ seed: Number(seedArg ?? 482913), v: process.env.GEN_V ? Number(process.env.GEN_V) : undefined });
 const svg = renderSvg({ width: m.settings.width, height: m.settings.height, water: m.water, symbols: m.symbols, towns: m.towns, labels: m.labels, ink });
 console.log(m.labels.labels.map((l) => `${l.kind}: ${l.text}`).join("\n"));
 console.log(`generated in ${Math.round(performance.now() - t0)} ms; SVG ${Math.round(svg.length / 1024)} KB`);

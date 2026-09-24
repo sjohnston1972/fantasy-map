@@ -2,8 +2,14 @@
 // so a seed plus these values always rebuilds the same map. Milestone 10 packs this into
 // the share code; `v` is the generator version so old links keep working.
 
+// Generator versions. A share link records the version it was made with, and the
+// generator keeps each version's behaviour, so an old link still draws the same map.
+//   1: first release.
+//   2: forests grow in stands of one kind of tree, drawn close and overlapping.
+export const GENERATOR_VERSION = 2;
+
 export interface MapSettings {
-  v: 1;
+  v: number;
   scale: "region";
   seed: number;
   width: number; // map size in pixels
@@ -15,7 +21,7 @@ export interface MapSettings {
 }
 
 export const DEFAULT_SETTINGS: MapSettings = {
-  v: 1,
+  v: GENERATOR_VERSION,
   scale: "region",
   seed: 482913,
   width: 1600,
@@ -43,6 +49,7 @@ export function cleanSettings(s: Partial<MapSettings>): MapSettings {
   const d = DEFAULT_SETTINGS;
   return {
     ...d,
+    v: Math.round(clamp(s.v, [1, GENERATOR_VERSION], GENERATOR_VERSION)),
     seed: Math.round(clamp(s.seed, LIMITS.seed, d.seed)),
     width: Math.round(clamp(s.width, LIMITS.width, d.width)),
     height: Math.round(clamp(s.height, LIMITS.height, d.height)),

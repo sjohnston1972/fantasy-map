@@ -36,6 +36,7 @@ export function decodeSettings(code: string): { settings: MapSettings; version: 
   const seedNum = parseInt(seed, 36);
   if (!Number.isInteger(version) || !size || !Number.isFinite(seedNum)) return null;
   const settings = cleanSettings({
+    v: version,
     seed: seedNum,
     width: size[0],
     height: size[1],

@@ -11,7 +11,7 @@ import { saveMyMap } from "./mymaps";
 import { drawnBox, MapZoom, MAX_ZOOM, previewTransform, type View } from "./zoom";
 import { decodeEdits, decodeSettings, encodeEdits, encodeSettings, fingerprint } from "./share";
 import { randomSeed } from "../gen/rng";
-import { cleanSettings, DEFAULT_SETTINGS, type MapSettings } from "../gen/settings";
+import { cleanSettings, DEFAULT_SETTINGS, GENERATOR_VERSION, type MapSettings } from "../gen/settings";
 
 // A-paper proportions (1 by the square root of 2), so a map prints on A3 or A4 exactly.
 const SHAPES: Record<string, [number, number]> = {
@@ -141,6 +141,8 @@ function readForm() {
   const [width, height] = SHAPES[els.shape.value] ?? SHAPES.portrait;
   settings = cleanSettings({
     ...settings,
+    // A changed map is drawn with the newest generator; only an opened link keeps its own.
+    v: GENERATOR_VERSION,
     seed: Number(els.seed.value),
     width,
     height,
@@ -754,7 +756,7 @@ async function updateLink() {
 
 if (badLinkEdits) els.shareStatus.value = "The edits in this link could not be read, so the map is shown without them.";
 
-if (shared && shared.version !== DEFAULT_SETTINGS.v) {
+if (shared && shared.version > GENERATOR_VERSION) {
   els.shareStatus.value = "This link was made with a different version of the generator, so the map may differ slightly.";
 }
 

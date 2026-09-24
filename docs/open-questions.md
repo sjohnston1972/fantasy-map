@@ -305,3 +305,22 @@ can only be reopened by dropping its file again on the Import page.
   - Open question: pasting many items makes long links (47 pasted symbols made a link of
     about 1,200 characters). Fine for copying and gallery entries; some chat apps may cut
     very long links.
+
+## Generator version 2: forests in stands, overlapping trees
+
+- Steven: "trees should group by type and be tighter together/overlapping".
+- **Stands:** pine or leafy is now decided over stands (the climate's choice averaged over
+  about 60 map pixels, nudged by slow noise), not cell by cell, so forests are solid
+  patches of one kind instead of a speckle. A test checks trees' nearest neighbours are
+  mostly the same kind (under 8% mixed on the test seed).
+- **Overlap:** trees are drawn larger than the gap between them (pines 16 to 21 px on a
+  10.5 px grid, leafy trees 18 to 24 px on 11.5 px) and may overlap other trees by up to
+  60%, drawn back to front with their white outlines. **This relaxes the spec's "no two
+  symbols overlap by more than 20%" rule for tree on tree only**; every other pair keeps 20%.
+- **Cost:** about 35% more symbols than version 1 (3,944 against 2,842 on the default
+  seed); generation still about 1.4 s.
+- **Old links keep working:** the settings' `v` field is now used. Links, saved maps and
+  gallery entries made before this say `v` 1 and are drawn with the version 1 forests, so
+  their edits still land on the same symbols. Any change on the page (new seed, a slider)
+  draws with the newest version. Links from a newer version than the page knows are drawn
+  with the newest it has, with a note.

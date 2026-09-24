@@ -9,6 +9,7 @@
 
 import { BIOME, type Climate } from "./climate";
 import type { Hydrology } from "./hydrology";
+import { fbm, simplex } from "./noise";
 import { rng, stageSeed } from "./rng";
 import type { MapSettings } from "./settings";
 
@@ -27,6 +28,10 @@ export interface PlacedSymbol {
 }
 
 export const MAX_OVERLAP = 0.2;
+// From generator version 2, trees may overlap other trees this much (a forest is drawn as
+// overlapping trees, back to front); against any other symbol the usual limit applies.
+export const MAX_TREE_OVERLAP = 0.6;
+const TREES = new Set<string>(["conifer", "broadleaf"]);
 
 interface Rule {
   role: Role;
@@ -46,12 +51,23 @@ export function placeSymbols(hy: Hydrology, cl: Climate, s: MapSettings, blocked
   const b = cl.biome;
   const e = cl.elevation;
 
+  // Version 2 forests: which kind of tree grows is decided over whole stands, not cell by
+  // cell, so a forest is patches of pine and patches of leafy trees rather than a speckle.
+  const v2 = s.v >= 2;
+  const coniferStand = v2 ? standField(hy, cl, s) : null;
+  const isConifer = (i: number) => (coniferStand ? coniferStand[i] === 1 : cl.temperature[i] < 0.45 || e[i] > 0.4);
+
   // Order matters: big features claim their ground first, small ones fill in around them.
   const rules: Rule[] = [
     { role: "mountain", spacing: 30, size: [58, 104], aspect: 0.72, where: (i) => (b[i] === BIOME.mountain ? 0.35 + e[i] * 0.6 : 0) },
     { role: "hill", spacing: 34, size: [32, 46], aspect: 0.5, where: (i) => (b[i] !== BIOME.mountain && e[i] > 0.3 ? 0.5 : 0) },
-    { role: "conifer", spacing: 11, size: [11, 15], aspect: 1.6, where: (i) => (b[i] === BIOME.forest && (cl.temperature[i] < 0.45 || e[i] > 0.4) ? 0.85 : b[i] === BIOME.tundra ? 0.08 : 0) },
-    { role: "broadleaf", spacing: 12, size: [13, 18], aspect: 1.05, where: (i) => (b[i] === BIOME.forest && !(cl.temperature[i] < 0.45 || e[i] > 0.4) ? 0.85 : 0) },
+    // Version 2 trees are drawn larger than the gap between them, so they overlap.
+    v2
+      ? { role: "conifer", spacing: 10.5, size: [16, 21], aspect: 1.6, where: (i) => (b[i] === BIOME.forest && isConifer(i) ? 0.93 : b[i] === BIOME.tundra ? 0.08 : 0) }
+      : { role: "conifer", spacing: 11, size: [11, 15], aspect: 1.6, where: (i) => (b[i] === BIOME.forest && isConifer(i) ? 0.85 : b[i] === BIOME.tundra ? 0.08 : 0) },
+    v2
+      ? { role: "broadleaf", spacing: 11.5, size: [18, 24], aspect: 1.05, where: (i) => (b[i] === BIOME.forest && !isConifer(i) ? 0.93 : 0) }
+      : { role: "broadleaf", spacing: 12, size: [13, 18], aspect: 1.05, where: (i) => (b[i] === BIOME.forest && !isConifer(i) ? 0.85 : 0) },
     { role: "reeds", spacing: 14, size: [10, 14], aspect: 0.8, where: (i) => (b[i] === BIOME.marsh ? 0.6 : 0) },
     { role: "dune", spacing: 34, size: [26, 40], aspect: 0.35, where: (i) => (b[i] === BIOME.desert ? 0.5 : 0) },
     { role: "cactus", spacing: 22, size: [6, 9], aspect: 1.6, where: (i) => (b[i] === BIOME.desert ? 0.12 : 0) },
@@ -83,7 +99,7 @@ export function placeSymbols(hy: Hydrology, cl: Climate, s: MapSettings, blocked
         // The whole base must stand on dry land, clear of rivers.
         if (!footOnLand(x, y, w, cellW, cellH, cols, rows, land)) continue;
         const sym: PlacedSymbol = { role: rule.role, x, y, w, h, variant, flip };
-        if (grid.overlapsTooMuch(sym)) continue;
+        if (grid.overlapsTooMuch(sym, v2)) continue;
         grid.add(sym);
         placed.push(sym);
       }
@@ -92,6 +108,51 @@ export function placeSymbols(hy: Hydrology, cl: Climate, s: MapSettings, blocked
   // Draw from the back (top of the map) to the front, so nearer symbols overlap further ones.
   placed.sort((a, b2) => a.y - b2.y || a.x - b2.x);
   return placed;
+}
+
+// Which forest cells grow pine (1) and which leafy trees (0), decided over stands a few
+// hundred map pixels across: the climate's own choice (cold or high ground means pine),
+// averaged over the neighbourhood, nudged by slow noise so stand edges wander naturally.
+function standField(hy: Hydrology, cl: Climate, s: MapSettings): Uint8Array {
+  const { cols, rows } = hy;
+  const n = cols * rows;
+  const raw = new Float32Array(n);
+  for (let i = 0; i < n; i++) raw[i] = cl.temperature[i] < 0.45 || cl.elevation[i] > 0.4 ? 1 : 0;
+  // Average over a square about 60 map pixels across (two passes of a box blur).
+  const radius = Math.max(2, Math.round(30 / (s.width / cols)));
+  const smooth = boxBlur(boxBlur(raw, cols, rows, radius), cols, rows, radius);
+  const noise = simplex(stageSeed(s.seed, "symbols:stands"));
+  const k = 1 / (220 * (cols / s.width)); // noise features about 220 map pixels across
+  const out = new Uint8Array(n);
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const i = r * cols + c;
+      out[i] = smooth[i] + 0.3 * fbm(noise, c * k, r * k, 2) > 0.5 ? 1 : 0;
+    }
+  }
+  return out;
+}
+
+function boxBlur(src: Float32Array, cols: number, rows: number, radius: number): Float32Array {
+  const tmp = new Float32Array(src.length);
+  const out = new Float32Array(src.length);
+  for (let r = 0; r < rows; r++) {
+    let sum = 0;
+    for (let c = -radius; c <= radius; c++) sum += src[r * cols + Math.min(cols - 1, Math.max(0, c))];
+    for (let c = 0; c < cols; c++) {
+      tmp[r * cols + c] = sum / (2 * radius + 1);
+      sum += src[r * cols + Math.min(cols - 1, c + radius + 1)] - src[r * cols + Math.max(0, c - radius)];
+    }
+  }
+  for (let c = 0; c < cols; c++) {
+    let sum = 0;
+    for (let r = -radius; r <= radius; r++) sum += tmp[Math.min(rows - 1, Math.max(0, r)) * cols + c];
+    for (let r = 0; r < rows; r++) {
+      out[r * cols + c] = sum / (2 * radius + 1);
+      sum += tmp[Math.min(rows - 1, r + radius + 1) * cols + c] - tmp[Math.max(0, r - radius) * cols + c];
+    }
+  }
+  return out;
 }
 
 function footOnLand(x: number, y: number, w: number, cellW: number, cellH: number, cols: number, rows: number, land: (i: number) => boolean): boolean {
@@ -150,8 +211,12 @@ class BoxGrid {
     for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) out.push(r * this.cols + c);
     return out;
   }
-  overlapsTooMuch(s: PlacedSymbol): boolean {
-    for (const k of this.keys(s)) for (const o of this.buckets.get(k) ?? []) if (overlapShare(s, o) > MAX_OVERLAP) return true;
+  overlapsTooMuch(s: PlacedSymbol, treesMayOverlap = false): boolean {
+    for (const k of this.keys(s))
+      for (const o of this.buckets.get(k) ?? []) {
+        const limit = treesMayOverlap && TREES.has(s.role) && TREES.has(o.role) ? MAX_TREE_OVERLAP : MAX_OVERLAP;
+        if (overlapShare(s, o) > limit) return true;
+      }
     return false;
   }
   add(s: PlacedSymbol) {

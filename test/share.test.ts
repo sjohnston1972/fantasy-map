@@ -15,14 +15,18 @@ describe("share links (spec: share link rebuilds the identical map in another br
 
   it("packs the settings into a short code", () => {
     const code = encodeSettings(settings);
-    expect(code).toBe("1.acm9.l.42.70.25.9");
-    expect(encodeSettings(DEFAULT_SETTINGS)).toBe("1.acm9.p.35.50.60.5");
+    expect(code).toBe("2.acm9.l.42.70.25.9");
+    expect(encodeSettings(DEFAULT_SETTINGS)).toBe("2.acm9.p.35.50.60.5");
     expect(code.length).toBeLessThan(30);
     expect(encodeURIComponent(code)).toBe(code); // safe in a URL as it is
   });
 
   it("reads a code back to exactly the same settings", () => {
-    expect(decodeSettings(encodeSettings(settings))).toEqual({ settings, version: 1 });
+    expect(decodeSettings(encodeSettings(settings))).toEqual({ settings, version: 2 });
+    // A link made before version 2 keeps version 1, so it draws the map it always did.
+    expect(decodeSettings("1.acm9.l.42.70.25.9")?.settings).toEqual({ ...settings, v: 1 });
+    // A link from a newer version than this page knows is drawn with the newest it has.
+    expect(decodeSettings("9.acm9.l.42.70.25.9")).toEqual({ settings, version: 9 });
     const custom = cleanSettings({ ...settings, width: 2000, height: 1400, seed: 999_999_999 });
     expect(decodeSettings(encodeSettings(custom))?.settings).toEqual(custom);
   });

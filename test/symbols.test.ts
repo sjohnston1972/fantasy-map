@@ -4,7 +4,7 @@ import { outlines, simplify } from "../src/gen/contours";
 import { WATER_SEA } from "../src/gen/hydrology";
 import { generate } from "../src/gen/pipeline";
 import { DEFAULT_SETTINGS } from "../src/gen/settings";
-import { MAX_OVERLAP, overlapShare, type PlacedSymbol } from "../src/gen/symbols";
+import { MAX_OVERLAP, MAX_TREE_OVERLAP, overlapShare, type PlacedSymbol } from "../src/gen/symbols";
 import { toInkSet } from "../src/gen/inkset";
 import { renderSvg } from "../src/gen/svg";
 
@@ -53,17 +53,57 @@ describe("symbols", () => {
     for (const r of ["mountain", "hill", "conifer", "broadleaf", "reeds", "dune", "snow"]) expect(all, r).toContain(r);
   });
 
-  it("never overlaps two symbols by more than 20% (spec acceptance)", () => {
-    for (const m of maps) {
-      const s = [...m.symbols].sort((a, b) => a.x - a.w / 2 - (b.x - b.w / 2));
-      let worst = 0;
-      for (let i = 0; i < s.length; i++) {
-        for (let j = i + 1; j < s.length && s[j].x - s[j].w / 2 < s[i].x + s[i].w / 2; j++) {
-          worst = Math.max(worst, overlapShare(s[i], s[j]));
-        }
+  // Spec acceptance: no two symbols overlap by more than 20%. Steven asked for forests of
+  // overlapping trees, so from generator version 2 a tree may overlap another tree more.
+  const isTree = (s: PlacedSymbol) => s.role === "conifer" || s.role === "broadleaf";
+  const worstOverlaps = (symbols: PlacedSymbol[]) => {
+    const s = [...symbols].sort((a, b) => a.x - a.w / 2 - (b.x - b.w / 2));
+    let trees = 0;
+    let other = 0;
+    for (let i = 0; i < s.length; i++) {
+      for (let j = i + 1; j < s.length && s[j].x - s[j].w / 2 < s[i].x + s[i].w / 2; j++) {
+        const o = overlapShare(s[i], s[j]);
+        if (isTree(s[i]) && isTree(s[j])) trees = Math.max(trees, o);
+        else other = Math.max(other, o);
       }
-      expect(worst).toBeLessThanOrEqual(MAX_OVERLAP);
     }
+    return { trees, other };
+  };
+
+  it("never overlaps two symbols by more than 20%, except tree on tree (spec acceptance)", () => {
+    for (const m of maps) {
+      const w = worstOverlaps(m.symbols);
+      expect(w.other).toBeLessThanOrEqual(MAX_OVERLAP);
+      expect(w.trees).toBeLessThanOrEqual(MAX_TREE_OVERLAP);
+      expect(w.trees).toBeGreaterThan(MAX_OVERLAP); // forests really do overlap now
+    }
+  });
+
+  it("keeps the first generator's 20% rule for trees on version 1 links", () => {
+    const w = worstOverlaps(generate({ ...DEFAULT_SETTINGS, v: 1, seed: 482913 }).symbols);
+    expect(Math.max(w.trees, w.other)).toBeLessThanOrEqual(MAX_OVERLAP);
+  });
+
+  it("grows forests in stands of one kind of tree", () => {
+    // Share of trees whose nearest tree is of the other kind: low means solid stands.
+    const mixing = (symbols: PlacedSymbol[]) => {
+      const trees = symbols.filter(isTree);
+      let mixed = 0;
+      for (const a of trees) {
+        let best = Infinity;
+        let kind = a.role;
+        for (const b of trees) {
+          if (b === a) continue;
+          const d = (a.x - b.x) ** 2 + (a.y - b.y) ** 2;
+          if (d < best) (best = d), (kind = b.role);
+        }
+        if (kind !== a.role) mixed++;
+      }
+      return mixed / trees.length;
+    };
+    const seed = 482913;
+    expect(mixing(generate({ ...DEFAULT_SETTINGS, seed, v: 2 }).symbols)).toBeLessThan(mixing(generate({ ...DEFAULT_SETTINGS, seed, v: 1 }).symbols));
+    expect(mixing(generate({ ...DEFAULT_SETTINGS, seed, v: 2 }).symbols)).toBeLessThan(0.08);
   });
 
   it("stands every symbol on dry land, off the rivers", () => {
