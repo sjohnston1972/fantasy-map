@@ -67,7 +67,8 @@ changes are safer. **No behaviour changes**: the page must look and work exactly
 
 8. **Palette → `src/app/palette.ts`** (Add symbols: `ADD_KINDS`, open, close, grid,
    choose, `placeAt`, `settlementName`) and **editing actions → `src/app/actions.ts`**
-   (Swap, Forward, Back, Delete, rename form, edit-mode button).
+   (Swap, Forward, Back, Delete, rename form and its "Suggest another" button for titles,
+   edit-mode button).
    *Done when:* the step checks pass and both files exist.
 
 9. **Sharing, export and keeping → `src/app/panels.ts`**: the share link (`updateLink`,
@@ -75,7 +76,8 @@ changes are safer. **No behaviour changes**: the page must look and work exactly
    *Done when:* the step checks pass and `grep -c 'updateLink' src/app/panels.ts` is at
    least 1.
 
-10. **What is left in `main.ts`:** startup (reading the link), the settings form,
+10. **What is left in `main.ts`:** startup (reading the link), the settings form (including
+    the Border choice, which redraws without generating),
     `draw`, `paint`, `svgFor`, the relief overlay, `applyView` and `previewView`, and the
     calls to the `init...()` functions, with a short comment at the top listing the
     modules and what each does.
