@@ -156,10 +156,10 @@ details.keys p { margin: 4px 0 0; }
 /* The map and the bar above it share one column exactly as wide as the map, so the hint lines
    up with its left edge and the zoom controls with its right. */
 .map-frame { flex-direction: column; align-items: center; }
-.map-column { display: flex; flex-direction: column; height: 100%; max-width: 100%; }
-/* The bar takes the map's width but never widens it (a long hint is cut short instead): its
-   own width counts as nothing when the column is sized, then it stretches to fill. */
-.map-bar { flex: none; height: 36px; margin-bottom: 6px; display: flex; align-items: center; gap: 10px; width: 0; min-width: 100%; }
-.map-column > .map-box { height: calc(100% - 42px); }
+.map-column { position: relative; height: 100%; max-width: 100%; padding-top: 42px; }
+/* The bar sits in room kept above the map, stretched between the column's edges, so it takes
+   the map's width but can never widen it (a long hint is cut short instead). */
+.map-bar { position: absolute; top: 0; left: 0; right: 0; height: 36px; display: flex; align-items: center; gap: 10px; }
+.map-column > .map-box { height: 100%; }
 @media (max-width: 760px) { .map-column { width: 100%; height: auto; } .map-column > .map-box { height: auto; } }
 .plain[aria-pressed="true"]:hover:not(:disabled) { background: #3a332c; }

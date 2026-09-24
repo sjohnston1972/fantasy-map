@@ -217,13 +217,18 @@ test.describe("editing with a mouse", () => {
     expect(group.length).toBeGreaterThan(1);
     expect(group).toContain(key);
     // Measured against the map itself: the page may settle by a fraction of a pixel meanwhile.
-    const onMap = async (k: string) => {
-      const [b, m] = [await box(page, k), (await page.locator("#map").boundingBox())!];
-      return { x: b.x - m.x, y: b.y - m.y };
-    };
-    const before = await Promise.all(group.map((k) => onMap(k!)));
+    // (All at once: a group can be a couple of hundred items.)
+    const onMap = () =>
+      page.evaluate((keys) => {
+        const m = document.querySelector("#map")!.getBoundingClientRect();
+        return keys.map((k) => {
+          const b = window.inkMap.screenBox(k!)!;
+          return { x: b.x - m.x, y: b.y - m.y };
+        });
+      }, group);
+    const before = await onMap();
     await drag(page, c, { x: c.x + 50, y: c.y + 30 });
-    const after = await Promise.all(group.map((k) => onMap(k!)));
+    const after = await onMap();
     after.forEach((a, i) => {
       expect(a.x - before[i].x).toBeCloseTo(50, 0);
       expect(a.y - before[i].y).toBeCloseTo(30, 0);
