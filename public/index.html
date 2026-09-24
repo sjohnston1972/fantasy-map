@@ -11,7 +11,7 @@
 <body>
   <header>
     <h1>Ink Fantasy Maps</h1>
-    <p class="tag">Here be dragons, eventually. For now, the lie of the land.</p>
+    <p class="tag">Hand-inked region maps, drawn fresh from a single number.</p>
   </header>
 
   <div class="layout">
@@ -42,9 +42,27 @@
         <input id="mountains" type="range" min="0" max="100" step="1">
       </label>
 
+      <label class="field">
+        <span>Forests <output id="forest-out" for="forest"></output></span>
+        <input id="forest" type="range" min="0" max="100" step="1">
+      </label>
+
+      <label class="field">
+        <span>Towns <output id="towns-out" for="towns"></output></span>
+        <input id="towns" type="range" min="1" max="15" step="1">
+      </label>
+
       <label class="check"><input id="show-relief" type="checkbox"> Show shaded relief</label>
 
       <button type="submit" class="generate">Generate a new map</button>
+
+      <div class="exports" role="group" aria-labelledby="share-title">
+        <span id="share-title" class="group-title">Share this map</span>
+        <input id="share-link" type="text" readonly aria-label="Link to this map">
+        <button type="button" id="copy-link" class="plain">Copy link</button>
+        <output id="share-status" aria-live="polite"></output>
+        <small class="fine">The link rebuilds this map from its settings. Edits are not included.</small>
+      </div>
 
       <div class="exports" role="group" aria-labelledby="export-title">
         <span id="export-title" class="group-title">Save the map</span>

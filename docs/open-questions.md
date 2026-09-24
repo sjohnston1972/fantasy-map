@@ -211,3 +211,24 @@ can only be reopened by dropping its file again on the Import page.
   4961 (landscape swapped). Open question: some phones (older iOS Safari) cap canvases at
   about 16.7 million pixels, just under A3 at 300 dpi; there the A3 PNG may fail with a
   message, and the SVG is the fallback.
+
+## Map milestone 10 decisions (share links and polish)
+
+- **Share code format:** dot-separated fields, `1.acm9.p.35.50.60.5` = generator version,
+  seed in base 36, shape (p, l, or WxH), sea, mountains and forests in per cent, towns. The
+  page keeps the current map's link in the address bar (no extra history entries), plus a
+  Copy link button. Opening the page without a link starts on a random seed.
+- **Old links:** a test pins the map drawn by one known link. If a future change alters
+  generation, that test fails on purpose. Open question for then: bump `v` and keep the old
+  generator for v1 links, or accept that old links draw a slightly different map.
+- **"Map check"** under the map is a short fingerprint of the plain drawing, so two people
+  can see at a glance that a link gave them the same map. Checked: Node and Chrome agree.
+  Not yet checked in Firefox or Safari, whose maths functions may differ in the last digit;
+  a mismatch there would show as a different map check.
+- **Settings panel** now has forests and towns sliders (1 to 15 towns), completing the
+  spec's list.
+- **Phones:** the map comes first and the settings follow; edit mode stops the page
+  scrolling only while switched on. Not tested on a real tablet or phone yet (the browser
+  window could not be resized here).
+- **Speed:** a map draws in about 1.2 to 1.8 s on this machine; the page code is about
+  21 KB compressed plus three 58 KB font files, and symbol packs load afterwards.

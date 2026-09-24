@@ -19,7 +19,7 @@ h1 { font-family: "IM Fell English SC", Georgia, serif; font-weight: 400; font-s
 :focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
 
 .layout { display: grid; grid-template-columns: 280px minmax(0, 1fr); gap: 20px; align-items: start; }
-@media (max-width: 760px) { .layout { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 760px) { .layout { grid-template-columns: minmax(0, 1fr); } .stage { order: -1; } }
 
 .panel { background: var(--card); border: 1px solid var(--rule); border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 14px; position: sticky; top: 16px; }
 @media (max-width: 760px) { .panel { position: static; } }
@@ -28,7 +28,7 @@ h1 { font-family: "IM Fell English SC", Georgia, serif; font-weight: 400; font-s
 .field output { font-weight: 400; color: var(--faint); }
 .field small { color: var(--faint); font-size: 0.78rem; }
 .seed-row { display: flex; gap: 6px; }
-input[type="number"], select { width: 100%; padding: 6px 8px; font: inherit; color: var(--ink); background: #fff; border: 1px solid var(--rule); border-radius: 5px; }
+input[type="number"], input[type="text"], select { width: 100%; padding: 6px 8px; font: inherit; color: var(--ink); background: #fff; border: 1px solid var(--rule); border-radius: 5px; }
 input[type="range"] { width: 100%; accent-color: var(--ink); }
 .icon-btn { flex: none; width: 40px; display: grid; place-items: center; font-size: 1.3rem; line-height: 1; border: 1.5px solid var(--ink); border-radius: 5px; background: var(--card); color: var(--ink); cursor: pointer; }
 .icon-btn:hover { background: #efe6d2; }
@@ -68,3 +68,5 @@ input[type="range"] { width: 100%; accent-color: var(--ink); }
 .map.editing { touch-action: none; cursor: crosshair; }
 .map.editing [data-key] { cursor: grab; }
 .map [data-key].selected { filter: drop-shadow(0 0 2px var(--focus)) drop-shadow(0 0 2px var(--focus)); }
+.fine { color: var(--faint); font-size: 0.76rem; }
+#share-link { font-size: 0.8rem; }

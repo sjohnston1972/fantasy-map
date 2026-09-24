@@ -7,6 +7,7 @@ import { toInkSet, type InkSet, type InkSymbol } from "../gen/inkset";
 import { drawingOf, renderSvg } from "../gen/svg";
 import { applyEdits, editCount, move, NO_EDITS, remove, rename, swap, type EditedMap, type Edits } from "../gen/edits";
 import { embeddedFontCss, pngSize, saveBlob, svgToPng } from "./export";
+import { decodeSettings, encodeSettings, fingerprint } from "./share";
 import { randomSeed } from "../gen/rng";
 import { cleanSettings, DEFAULT_SETTINGS, type MapSettings } from "../gen/settings";
 
@@ -25,6 +26,13 @@ const els = {
   seaOut: $<HTMLOutputElement>("#sea-out"),
   mountains: $<HTMLInputElement>("#mountains"),
   mountainsOut: $<HTMLOutputElement>("#mountains-out"),
+  forest: $<HTMLInputElement>("#forest"),
+  forestOut: $<HTMLOutputElement>("#forest-out"),
+  towns: $<HTMLInputElement>("#towns"),
+  townsOut: $<HTMLOutputElement>("#towns-out"),
+  shareLink: $<HTMLInputElement>("#share-link"),
+  copyLink: $<HTMLButtonElement>("#copy-link"),
+  shareStatus: $<HTMLOutputElement>("#share-status"),
   map: $<HTMLElement>("#map"),
   mapBox: $<HTMLElement>("#map-box"),
   relief: $<HTMLCanvasElement>("#relief"),
@@ -44,13 +52,15 @@ const els = {
   exportStatus: $<HTMLOutputElement>("#export-status"),
 };
 
-let settings: MapSettings = { ...DEFAULT_SETTINGS };
+// A share link (?map=code) opens the map it names; otherwise the page starts on a new seed.
+const shared = decodeSettings(new URLSearchParams(location.search).get("map") ?? "");
+let settings: MapSettings = shared?.settings ?? { ...DEFAULT_SETTINGS, seed: randomSeed() };
 let current: GeneratedMap | null = null;
 let ink: InkSet | undefined; // hand-inked symbols, once the packs have loaded
 // Light editing: the changes made on top of the generated map, the earlier versions of
 // those changes (for undo), and the item currently picked.
 let edits: Edits = NO_EDITS;
-let history: Edits[] = [];
+let undoStack: Edits[] = [];
 let edited: EditedMap | null = null;
 let selected: string | null = null;
 let editing = false;
@@ -89,7 +99,7 @@ els.form.addEventListener("submit", (e) => {
   draw();
 });
 // Sliders and the shape redraw as they change; the seed redraws on Enter or Generate.
-for (const input of [els.sea, els.mountains]) input.addEventListener("input", () => (readForm(), draw()));
+for (const input of [els.sea, els.mountains, els.forest, els.towns]) input.addEventListener("input", () => (readForm(), draw()));
 els.shape.addEventListener("change", () => (readForm(), draw()));
 els.showRelief.addEventListener("change", () => current && paintRelief(current));
 
@@ -102,6 +112,8 @@ function readForm() {
     height,
     sea_level: Number(els.sea.value) / 100,
     mountain_density: Number(els.mountains.value) / 100,
+    forest_density: Number(els.forest.value) / 100,
+    town_count: Number(els.towns.value),
   });
   syncForm();
 }
@@ -113,6 +125,10 @@ function syncForm() {
   els.seaOut.value = `${els.sea.value}% water`;
   els.mountains.value = String(Math.round(settings.mountain_density * 100));
   els.mountainsOut.value = `${els.mountains.value}%`;
+  els.forest.value = String(Math.round(settings.forest_density * 100));
+  els.forestOut.value = `${els.forest.value}%`;
+  els.towns.value = String(settings.town_count);
+  els.townsOut.value = els.towns.value;
 }
 
 function draw() {
@@ -125,7 +141,7 @@ function draw() {
     const map = generate(settings);
     // A new map starts with no edits; they belong to the map they were made on.
     edits = NO_EDITS;
-    history = [];
+    undoStack = [];
     selected = null;
     paint(map);
     // A short fade-in, so every redraw is visible even when little changes.
@@ -135,7 +151,11 @@ function draw() {
     const ms = Math.round(performance.now() - t0);
     const w = map.water;
     const t = map.towns;
-    els.caption.textContent = `Seed ${map.settings.seed}: ${t.places.length} settlements, ${t.roads.length} roads, ${t.bridges.length} bridges, ${w.rivers.length} rivers, ${w.lakes} ${w.lakes === 1 ? "lake" : "lakes"}. Generated in ${ms} ms.`;
+    // The fingerprint is taken from the plain drawing (no ink packs, no edits), so it is the
+    // same for everyone who opens the same link.
+    const print = fingerprint(renderSvg({ width: map.settings.width, height: map.settings.height, water: map.water, symbols: map.symbols, towns: map.towns, labels: map.labels }));
+    els.caption.textContent = `Seed ${map.settings.seed}: ${t.places.length} settlements, ${t.roads.length} roads, ${t.bridges.length} bridges, ${w.rivers.length} rivers, ${w.lakes} ${w.lakes === 1 ? "lake" : "lakes"}. Drawn in ${ms} ms. Map check ${print}.`;
+    showShareLink(map.settings);
   };
 }
 
@@ -185,14 +205,14 @@ els.editMode.addEventListener("click", () => {
 
 function commit(next: Edits) {
   if (next === edits || !current) return;
-  history.push(edits);
+  undoStack.push(edits);
   edits = next;
   paint(current);
 }
 
 els.undo.addEventListener("click", undo);
 function undo() {
-  const prev = history.pop();
+  const prev = undoStack.pop();
   if (!prev || !current) return;
   edits = prev;
   paint(current);
@@ -231,7 +251,7 @@ function showSelection() {
   const d = selected && edited ? drawingOf(edited, selected) : null;
   els.del.disabled = !selected;
   els.swap.disabled = !d || (ink?.[d.role]?.length ?? 0) < 2;
-  els.undo.disabled = history.length === 0;
+  els.undo.disabled = undoStack.length === 0;
   els.rename.hidden = !isLabel;
   if (isLabel) els.labelText.value = edited?.labels.labels.find((l) => `label:${l.id}` === selected)?.text ?? "";
   const n = editCount(edits);
@@ -254,7 +274,11 @@ els.map.addEventListener("pointerdown", (e) => {
   const svg = els.map.querySelector("svg")!;
   const scale = svg.viewBox.baseVal.width / svg.getBoundingClientRect().width;
   drag = { key, el, x: e.clientX, y: e.clientY, scale, base: el.getAttribute("transform") ?? "", dx: 0, dy: 0 };
-  els.map.setPointerCapture(e.pointerId);
+  try {
+    els.map.setPointerCapture(e.pointerId);
+  } catch {
+    // The pointer has already gone; the drag still ends on pointerup.
+  }
   e.preventDefault();
 });
 
@@ -338,3 +362,31 @@ async function exporting(what: string, job: (map: EditedMap) => Promise<void>) {
     buttons.forEach((b) => (b.disabled = false));
   }
 }
+
+// ---- Share link ----
+// The address bar always holds the current map's link, so copying the address shares it too.
+
+function showShareLink(s: MapSettings) {
+  const url = new URL(location.href);
+  url.search = `?map=${encodeSettings(s)}`;
+  url.hash = "";
+  history.replaceState(null, "", url);
+  els.shareLink.value = url.href;
+  els.shareStatus.value = "";
+}
+
+if (shared && shared.version !== DEFAULT_SETTINGS.v) {
+  els.shareStatus.value = "This link was made with a different version of the generator, so the map may differ slightly.";
+}
+
+els.copyLink.addEventListener("click", async () => {
+  try {
+    await navigator.clipboard.writeText(els.shareLink.value);
+    els.shareStatus.value = "Link copied.";
+  } catch {
+    // Clipboard access can be refused; leave the link selected to copy by hand.
+    els.shareLink.select();
+    els.shareStatus.value = "Press Ctrl+C (or Cmd+C) to copy the selected link.";
+  }
+});
+els.shareLink.addEventListener("focus", () => els.shareLink.select());
