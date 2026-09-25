@@ -4,7 +4,8 @@
 import { applyEdits, changedKeys, move, type Edits } from "../gen/edits";
 import { layerOrder, renderItems } from "../gen/svg";
 import { els } from "./dom";
-import { paint, updateLink } from "./main";
+import { paint } from "./main";
+import { updateLink } from "./panels";
 import { itemEl, showSelection } from "./selection";
 import { state } from "./state";
 

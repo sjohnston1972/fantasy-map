@@ -35,3 +35,11 @@ Checks: `npm run typecheck` exit 0; `npm test` 200 and 28 passed; `npm run build
 `npx playwright test --project=chromium` 23 passed, 2 skipped. `public/app.js` is 111,484
 bytes (2.7% over the baseline: `state.` property names are not shortened by the minifier).
 main.ts is now 413 lines.
+
+## 2026-09-25: step 9, panels (done)
+
+`src/app/panels.ts`: SVG and PNG export, the share link (`updateLink`, Copy link), Save to
+My maps and Publish, registered by `initPanels`. The messages about a link's unreadable
+edits or newer version stay in main.ts with the rest of the startup. Checks: typecheck
+exit 0; unit tests 200 and 28 passed; Chromium 23 passed, 2 skipped. `updateLink` in
+panels.ts: 1. main.ts is 299 lines.
