@@ -12,3 +12,26 @@ Run in the interactive session at Steven's request ("Do the tidy up").
 - `npm run e2e` (all browsers): 80 passed, 45 skipped (by design: mouse-only tests on the
   phone and tablet, and so on), 0 failed, in 14.1 minutes.
 - `public/app.js`: 108,592 bytes.
+
+## 2026-09-25: steps 2 to 8b (done, committed together)
+
+The baseline browser run served the built page for 14 minutes, so steps 2 to 8b were made
+one at a time with the type checker after each, then checked and committed together once
+it finished. Done conditions, all met:
+
+- Step 2, `src/app/dom.ts` (`$`, `els`): `querySelector<T>` in main.ts: 0.
+- Step 3, `src/app/state.ts` (one `state` object, plus the `Hit` and `Moving` types, and
+  `confirmPublish`, which a new map resets): `^let ` lines in main.ts: 3.
+- Step 4, `src/app/history.ts` (`initHistory` for Undo and Redo): `function patchItems`: 1.
+- Step 5, `src/app/selection.ts` (also `primary`; the `window.inkMap` test hook is set when
+  the module loads, as before): `inkMap`: 1.
+- Step 6, `src/app/gestures.ts` (`initGestures`, also the zoom buttons):
+  `addEventListener("pointerdown"` in main.ts: 0.
+- Step 7, `src/app/keys.ts`, `clipboard.ts`, `resize.ts`: all exist.
+- Step 8, `src/app/palette.ts` (with `settlementName`) and `actions.ts`: both exist.
+- Step 8b, `src/app/ink.ts`: `function loadKinds`: 1.
+
+Checks: `npm run typecheck` exit 0; `npm test` 200 and 28 passed; `npm run build`, then
+`npx playwright test --project=chromium` 23 passed, 2 skipped. `public/app.js` is 111,484
+bytes (2.7% over the baseline: `state.` property names are not shortened by the minifier).
+main.ts is now 413 lines.
