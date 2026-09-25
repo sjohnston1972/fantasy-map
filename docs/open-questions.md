@@ -535,3 +535,7 @@ can only be reopened by dropping its file again on the Import page.
 - Making a map itself still takes about 1.2 to 1.5 s at best here; the height map's noise
   is the largest share. Faster noise would change maps unless done with great care, so it
   is left alone.
+- Measured live after the change (Chromium): the browser's "loaded" moment is at 0.35 s
+  (was 3.3 to 3.9 s); the first map shows at about 4 s and its pre-drawn pictures at about
+  8 s; making a new map now freezes the page for at most about 0.9 s (putting the finished
+  drawing on screen) instead of for the whole 3 or so seconds.
