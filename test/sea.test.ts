@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { WATER_SEA } from "../src/gen/hydrology";
 import { generate } from "../src/gen/pipeline";
 import { SEA_ROLES } from "../src/gen/sea";
+import { overlapShare } from "../src/gen/symbols";
 import { DEFAULT_SETTINGS } from "../src/gen/settings";
 import { renderSvg } from "../src/gen/svg";
 
@@ -22,7 +23,7 @@ describe("land and the frame (generator version 6)", () => {
   });
 });
 
-describe("ships and sea life (generator version 6)", () => {
+describe("ships and sea life (generator versions 6 and 7)", () => {
   it("puts ships, creatures and reefs at sea and lighthouses on the coast", () => {
     for (const m of maps) {
       const sea = m.symbols.filter((s) => isSea(s.role));
@@ -42,6 +43,18 @@ describe("ships and sea life (generator version 6)", () => {
     expect(count({ sea_life: 0 })).toBe(0);
     expect(count({ sea_life: 1 })).toBeGreaterThan(count({ sea_life: 0.3 }));
     expect(count({ v: 5, sea_life: 1 })).toBe(0);
+  });
+
+  it("from version 7 finds headlands for lighthouses, clearing the trees and hills from them", () => {
+    const lights = (m: ReturnType<typeof generate>) => m.symbols.filter((s) => s.role === "lighthouses-and-beacons");
+    for (const seed of [7919, 15838, 23757, 31676, 39595]) {
+      const m = generate({ ...DEFAULT_SETTINGS, seed, sea_life: 1 });
+      expect(lights(m).length, `seed ${seed}`).toBeGreaterThan(0);
+      for (const l of lights(m))
+        for (const s of m.symbols) if (s !== l && !isSea(s.role)) expect(overlapShare(l, s), `seed ${seed} ${s.role}`).toBe(0);
+    }
+    // Version 6 maps keep the stricter rule, so their symbols (and edits to them) stay put.
+    expect(lights(generate({ ...DEFAULT_SETTINGS, v: 6, seed: 482913, sea_life: 1 }))).toHaveLength(0);
   });
 });
 
@@ -65,11 +78,14 @@ describe("drawing the sea", () => {
   it("keeps compass lines inside the map", () => {
     const svg = draw({ ...none, compassLines: true, roses: [[800, 1100]] });
     const path = svg.match(/<path d="(M800.0 1100.0L[^"]+)"/)![1];
-    for (const [, x, y] of path.matchAll(/L(-?[d.]+) (-?[d.]+)/g)) {
+    let checked = 0;
+    for (const [, x, y] of path.matchAll(/L(-?[\d.]+) (-?[\d.]+)/g)) {
+      checked++;
       expect(Number(x)).toBeGreaterThanOrEqual(-0.1);
       expect(Number(x)).toBeLessThanOrEqual(m.settings.width + 0.1);
       expect(Number(y)).toBeGreaterThanOrEqual(-0.1);
       expect(Number(y)).toBeLessThanOrEqual(m.settings.height + 0.1);
     }
+    expect(checked).toBeGreaterThan(20);
   });
 });

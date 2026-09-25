@@ -495,3 +495,15 @@ can only be reopened by dropping its file again on the Import page.
   wavered by a smooth position-based noise (so ripple lines stay parallel to their coast);
   rivers and roads also drift gently from side to side, fading out at river mouths so they
   still meet the shore. Drawing only, for every map; the "map check" codes changed again.
+
+## Generator version 7: lighthouses that appear
+
+- Version 6 lighthouses needed a land cell with sea on five of its eight neighbours, which
+  the grid of cells almost never gives, and most headlands were already covered by coastal
+  trees or hills, so lighthouses hardly ever appeared. From version 7 a headland is a shore
+  cell with sea on at least 11 of the 24 cells within two steps, and a lighthouse clears the
+  land symbols from its spot (it still keeps clear of settlements and the other sea items).
+  Over 20 test maps at 60% sea life every map now has one or two.
+- Why a new version: adding lighthouses to a version 6 map would renumber its symbols, and
+  saved edits (which name symbols by number) would land on the wrong ones. Version 6 links
+  keep the old rule and draw exactly as before; new maps are version 7.

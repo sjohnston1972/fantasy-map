@@ -1,6 +1,8 @@
 // Sea life (generator version 6): ships under sail in open water, a sea creature or two far
 // out, lighthouses on headlands and rocks and reefs just offshore, drawn with the matching
 // kinds from the symbol library. How many is the Ships and sea life setting (0 to 1).
+// From version 7 a lighthouse clears the trees or hills from its headland (they are removed
+// from the symbols passed in), since the coast is so often covered by them.
 
 import type { Hydrology } from "./hydrology";
 import { WATER_SEA } from "./hydrology";
@@ -19,6 +21,7 @@ interface Kind {
   width: number; // on a 1600-pixel map
   aspect: number;
   spacing: number; // at least this far from another of the same kind (map pixels at 1600)
+  clears?: boolean; // clears the land's symbols from its spot rather than giving way to them
   where: (i: number) => boolean;
 }
 
@@ -37,26 +40,35 @@ export function placeSea(hy: Hydrology, towns: Settlements, symbols: PlacedSymbo
     const r = (i - c) / cols;
     return c >= edgeCells && r >= edgeCells && c < cols - edgeCells && r < rows - edgeCells;
   };
-  // A headland: a land cell with sea on at least five of its eight sides.
+  // A headland: a land cell on the shore that juts out to sea. Version 6 asked for sea on five
+  // of the eight cells around it, which the coast's grid of cells hardly ever gives; from
+  // version 7 it is a shore cell with sea on enough of the 24 cells within two steps.
   const headland = (i: number) => {
     if (hy.water[i] !== 0) return false;
     const c = i % cols;
     const r = (i - c) / cols;
+    const reach = s.v >= 7 ? 2 : 1;
     let sea = 0;
-    for (let dr = -1; dr <= 1; dr++) for (let dc = -1; dc <= 1; dc++) if ((dr || dc) && hy.water[(r + dr) * cols + c + dc] === WATER_SEA) sea++;
-    return sea >= 5;
+    let shore = false;
+    for (let dr = -reach; dr <= reach; dr++)
+      for (let dc = -reach; dc <= reach; dc++) {
+        if (!(dr || dc) || hy.water[(r + dr) * cols + c + dc] !== WATER_SEA) continue;
+        sea++;
+        if (Math.abs(dr) <= 1 && Math.abs(dc) <= 1) shore = true;
+      }
+    return s.v >= 7 ? shore && sea >= 11 : sea >= 5;
   };
 
   const kinds: Kind[] = [
     { role: "rocks-and-reefs", most: 12, width: 18, aspect: 0.7, spacing: 80, where: (i) => isSea(i) && seaDist[i] >= 1 && seaDist[i] <= 3 },
-    { role: "lighthouses-and-beacons", most: 3, width: 24, aspect: 1.4, spacing: 260, where: headland },
+    { role: "lighthouses-and-beacons", most: 3, width: 24, aspect: 1.4, spacing: 260, where: headland, clears: s.v >= 7 },
     { role: "ships-and-boats", most: 6, width: 46, aspect: 0.9, spacing: 200, where: (i) => isSea(i) && seaDist[i] >= 8 },
     { role: "sea-creatures", most: 3, width: 72, aspect: 0.7, spacing: 320, where: (i) => isSea(i) && seaDist[i] >= 14 },
   ];
 
   // Settlements and what is already placed are kept clear.
-  const taken: PlacedSymbol[] = [...symbols];
-  for (const p of towns.places) taken.push({ role: "hill", x: p.x, y: p.y + 20 * px, w: 60 * px, h: 60 * px, variant: 0, flip: false });
+  const settled: PlacedSymbol[] = towns.places.map((p) => ({ role: "hill", x: p.x, y: p.y + 20 * px, w: 60 * px, h: 60 * px, variant: 0, flip: false }));
+  const taken: PlacedSymbol[] = [...symbols, ...settled];
 
   const out: PlacedSymbol[] = [];
   for (const kind of kinds) {
@@ -76,7 +88,11 @@ export function placeSea(hy: Hydrology, towns: Settlements, symbols: PlacedSymbo
       const sym: PlacedSymbol = { role: kind.role, x: (c + 0.5) * cellW, y: (r + 0.5) * cellH + (w * kind.aspect) / 2, w, h: w * kind.aspect, variant, flip };
       const gap = kind.spacing * px;
       if (mine.some((o) => Math.hypot(o.x - sym.x, o.y - sym.y) < gap)) continue;
-      if (taken.some((o) => overlapShare(sym, o) > 0)) continue;
+      if (kind.clears) {
+        // Only settlements and the sea's own items stand in its way; land symbols make room.
+        if ([...settled, ...out, ...mine].some((o) => overlapShare(sym, o) > 0)) continue;
+        for (let k = symbols.length - 1; k >= 0; k--) if (overlapShare(sym, symbols[k]) > 0) taken.splice(taken.indexOf(symbols[k]), 1), symbols.splice(k, 1);
+      } else if (taken.some((o) => overlapShare(sym, o) > 0)) continue;
       mine.push(sym);
       taken.push(sym);
     }

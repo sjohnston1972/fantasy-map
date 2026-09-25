@@ -10,7 +10,7 @@
 //   4: a scale bar.
 //   5: mountains massed into overlapping ranges, bigger where the ground is higher.
 //   6: land never meets the frame; ships, sea creatures, lighthouses and reefs.
-export const GENERATOR_VERSION = 6;
+export const GENERATOR_VERSION = 7;
 
 // How the map's frame is drawn. Only the drawing changes, not the map, so this is not part
 // of the generator version.
