@@ -1,6 +1,6 @@
 # Run plan: split the map page code into modules
 
-**Goal.** `src/app/main.ts` (about 1,450 lines) holds the whole map page: generating and
+**Goal.** `src/app/main.ts` (about 1,550 lines) holds the whole map page: generating and
 drawing, zoom wiring, picking, dragging, box select, keyboard, clipboard, palette, resizing,
 history, sharing, export and the gallery buttons. Split it into focused modules so future
 changes are safer. **No behaviour changes**: the page must look and work exactly as before.
@@ -83,12 +83,13 @@ changes are safer. **No behaviour changes**: the page must look and work exactly
    least 1.
 
 10. **What is left in `main.ts`:** startup (reading the link), the settings form (including
-    the Border and Coast choices, which redraw without generating, and the sliders, which
-    regenerate when let go),
+    the Border and Coast choices and the Sea group (wave marks, compass lines, shallows and
+    deltas redraw without generating; sea life and the other sliders regenerate when let
+    go), and `seaStyle`),
     `draw`, `paint`, `svgFor`, the relief overlay, `applyView` and `previewView`, and the
     calls to the `init...()` functions, with a short comment at the top listing the
     modules and what each does.
-    *Done when:* the step checks pass and `wc -l < src/app/main.ts` is under 450.
+    *Done when:* the step checks pass and `wc -l < src/app/main.ts` is under 500.
 
 11. **Full check.** `npm run typecheck`, `npm test`, `npm run e2e` (all browsers), and
     `public/app.js` within 5% of its baseline size (step 1). Add a "Page code" section to
