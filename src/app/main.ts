@@ -1,34 +1,42 @@
 // The public map page: generate a map from its settings, draw it in ink, let the visitor
 // make light edits, and export it. Everything runs in the visitor's browser.
+//
+// This file starts the page (reading a share link), runs the settings form, and draws the
+// map. The rest of the page is in these modules:
+//   dom.ts        the page's elements, looked up once
+//   state.ts      what the modules share: the map, its edits, the picked items, the zoom
+//   ink.ts        loading the symbol drawings, and the pre-drawn pictures used on screen
+//   history.ts    recording a change, undo and redo, redrawing only what changed
+//   selection.ts  picking items, and the box and action bar around them
+//   gestures.ts   dragging, picking boxes, and panning and zooming with the pointer
+//   keys.ts       the keyboard
+//   clipboard.ts  copy, cut and paste
+//   resize.ts     resizing by the box's corners, Smaller and Bigger
+//   actions.ts    edit mode, Swap, Forward, Back, Delete, and rewording names
+//   palette.ts    Add symbols
+//   panels.ts     saving files, the share link, My maps and the public gallery
+//   zoom.ts, sprites.ts, export.ts, share.ts, mymaps.ts: helpers used by the above
 
+import { applyEdits, NO_EDITS, type EditedMap } from "../gen/edits";
 import { generate, type GeneratedMap } from "../gen/pipeline";
 import { renderRelief } from "../gen/render";
-import { toInkSet, type InkSet, type InkSymbol } from "../gen/inkset";
-import { addedNameLayout, asDrawing, drawingOf, drawnBoxOf, frameFor, layerOrder, renderItems, renderSvg } from "../gen/svg";
-import { cultureAt, Namer, titleOptions } from "../gen/names";
-import { SEA_ROLES } from "../gen/sea";
-import { rng, stageSeed } from "../gen/rng";
-import { addSymbol, applyEdits, changedKeys, editCount, isSymbolKey, layer, move, NO_EDITS, remove, rename, resize, swap, type AddedSymbol, type EditedMap, type Edits, type LayerMove } from "../gen/edits";
-import { embeddedFontCss, pngSize, saveBlob, svgToPng, svgToThumb, toBase64 } from "./export";
-import { els } from "./dom";
+import { randomSeed } from "../gen/rng";
+import { cleanSettings, DEFAULT_SETTINGS, GENERATOR_VERSION, type Border, type Coast, type MapSettings } from "../gen/settings";
+import { frameFor, renderSvg, type SeaStyle } from "../gen/svg";
 import { initActions } from "./actions";
 import { initClipboard } from "./clipboard";
-import { cancelBox, cancelDrag, initGestures, setAreaMode } from "./gestures";
-import { buildSprites, loadInk, spritesWanted } from "./ink";
+import { els } from "./dom";
+import { initGestures } from "./gestures";
+import { initHistory } from "./history";
+import { loadInk, spritesWanted } from "./ink";
 import { initKeys } from "./keys";
 import { initPalette } from "./palette";
 import { initPanels, updateLink } from "./panels";
-import { initResize, resizeInPlace } from "./resize";
-import { commit, commitShown, followers, forPicked, initHistory, movePicked, redo, undo } from "./history";
-import { anchorOf, hits, itemEl, keysIn, pickAt, pickedRect, placeSelBox, primary, screenBox, screenToMap, select, showSelection, togglePick } from "./selection";
+import { initResize } from "./resize";
+import { placeSelBox, showSelection } from "./selection";
+import { decodeEdits, decodeSettings, fingerprint } from "./share";
 import { state } from "./state";
-import { saveMyMap } from "./mymaps";
 import { drawnBox, MapZoom, MAX_ZOOM, previewTransform, type View } from "./zoom";
-import { makeSprites, SPRITE_MAX_ZOOM } from "./sprites";
-import type { SeaStyle, Sprite } from "../gen/svg";
-import { decodeEdits, decodeSettings, encodeEdits, encodeSettings, fingerprint } from "./share";
-import { randomSeed } from "../gen/rng";
-import { cleanSettings, DEFAULT_SETTINGS, GENERATOR_VERSION, type Border, type Coast, type MapSettings } from "../gen/settings";
 
 // A-paper proportions (1 by the square root of 2), so a map prints on A3 or A4 exactly.
 const SHAPES: Record<string, [number, number]> = {
@@ -53,6 +61,10 @@ const shared = decodeSettings(params.get("map") ?? "");
 state.settings = shared?.settings ?? { ...DEFAULT_SETTINGS, seed: randomSeed() };
 state.linkEdits = shared ? await decodeEdits(params.get("e") ?? "") : null;
 const badLinkEdits = !!shared && !!params.get("e") && !state.linkEdits;
+if (badLinkEdits) els.shareStatus.value = "The edits in this link could not be read, so the map is shown without them.";
+if (shared && shared.version > GENERATOR_VERSION) {
+  els.shareStatus.value = "This link was made with a different version of the generator, so the map may differ slightly.";
+}
 
 // Redraw once for a burst of changes while a slider is dragged. A message-channel hop is
 // used rather than an animation frame, which browsers pause in background tabs.
@@ -281,19 +293,14 @@ function paintRelief(map: GeneratedMap) {
   positionRelief();
 }
 
+// The editing tools and the panels. Pointer and key handlers are registered in this order,
+// which matters where two listen for the same event (both keydown handlers are in keys.ts).
 initActions();
 initHistory();
 initGestures();
 initKeys();
 initClipboard();
 initPanels();
-
-if (badLinkEdits) els.shareStatus.value = "The edits in this link could not be read, so the map is shown without them.";
-
-if (shared && shared.version > GENERATOR_VERSION) {
-  els.shareStatus.value = "This link was made with a different version of the generator, so the map may differ slightly.";
-}
-
 initPalette();
 initResize();
 

@@ -43,3 +43,12 @@ My maps and Publish, registered by `initPanels`. The messages about a link's unr
 edits or newer version stay in main.ts with the rest of the startup. Checks: typecheck
 exit 0; unit tests 200 and 28 passed; Chromium 23 passed, 2 skipped. `updateLink` in
 panels.ts: 1. main.ts is 299 lines.
+
+## 2026-09-25: step 10, what is left in main.ts (done)
+
+main.ts now holds the startup (reading the link, and its two warnings), the settings form
+(including Border, Coast and the Sea group), `draw`, `paint`, `svgFor`, `seaStyle`, the
+relief overlay, `applyView` and `previewView`, and one block calling the `init...()`
+functions in the order the listeners were registered before. Unused imports removed; a
+comment at the top lists the modules. Checks: typecheck exit 0; unit tests 200 and 28
+passed; Chromium 23 passed, 2 skipped. `wc -l < src/app/main.ts`: 306 (target under 500).
