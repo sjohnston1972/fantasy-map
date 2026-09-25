@@ -18,5 +18,7 @@
   Cache-Control: no-cache
 /app.js
   Cache-Control: no-cache
+/gen-worker.js
+  Cache-Control: no-cache
 /gallery/*
   Cache-Control: no-cache

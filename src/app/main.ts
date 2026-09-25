@@ -5,6 +5,7 @@
 // map. The rest of the page is in these modules:
 //   dom.ts        the page's elements, looked up once
 //   state.ts      what the modules share: the map, its edits, the picked items, the zoom
+//   maker.ts      making maps in a background thread (gen-worker.ts), so the page never freezes
 //   ink.ts        loading the symbol drawings, and the pre-drawn pictures used on screen
 //   history.ts    recording a change, undo and redo, redrawing only what changed
 //   selection.ts  picking items, and the box and action bar around them
@@ -18,7 +19,7 @@
 //   zoom.ts, sprites.ts, export.ts, share.ts, mymaps.ts: helpers used by the above
 
 import { applyEdits, NO_EDITS, type EditedMap } from "../gen/edits";
-import { generate, type GeneratedMap } from "../gen/pipeline";
+import type { GeneratedMap } from "../gen/pipeline";
 import { renderRelief } from "../gen/render";
 import { randomSeed } from "../gen/rng";
 import { cleanSettings, DEFAULT_SETTINGS, GENERATOR_VERSION, type Border, type Coast, type MapSettings } from "../gen/settings";
@@ -28,8 +29,9 @@ import { initClipboard } from "./clipboard";
 import { els } from "./dom";
 import { initGestures } from "./gestures";
 import { initHistory } from "./history";
-import { loadInk, spritesWanted } from "./ink";
+import { buildSprites, loadInk, spritesWanted } from "./ink";
 import { initKeys } from "./keys";
+import { makeMap } from "./maker";
 import { initPalette } from "./palette";
 import { initPanels, updateLink } from "./panels";
 import { initResize } from "./resize";
@@ -66,12 +68,6 @@ if (shared && shared.version > GENERATOR_VERSION) {
   els.shareStatus.value = "This link was made with a different version of the generator, so the map may differ slightly.";
 }
 
-// Redraw once for a burst of changes while a slider is dragged. A message-channel hop is
-// used rather than an animation frame, which browsers pause in background tabs.
-let queued = false;
-const tick = new MessageChannel();
-let pendingDraw: () => void = () => {};
-tick.port1.onmessage = () => pendingDraw();
 syncForm();
 draw();
 void loadInk();
@@ -105,15 +101,16 @@ els.shape.addEventListener("change", () => (readForm(), draw()));
 // So do the wave marks, compass lines, shallows and deltas.
 for (const control of [els.border, els.coast, els.waves, els.compassLines, els.shallows, els.deltas])
   control.addEventListener("change", () => {
-    const style = {
+    state.settings = cleanSettings({
+      ...state.settings,
       border: els.border.value as Border,
       coast: els.coast.value as Coast,
       waves: Number(els.waves.value) / 100,
       compass_lines: els.compassLines.checked,
       shallows: els.shallows.checked,
       deltas: els.deltas.checked,
-    };
-    state.settings = cleanSettings({ ...state.settings, ...style });
+    });
+    const style = drawingStyle(state.settings);
     if (!state.current) return;
     state.current = { ...state.current, settings: { ...state.current.settings, ...style } };
     paint(state.current);
@@ -121,6 +118,11 @@ for (const control of [els.border, els.coast, els.waves, els.compassLines, els.s
   });
 els.waves.addEventListener("input", showSliderValues);
 els.showRelief.addEventListener("change", () => state.current && paintRelief(state.current));
+
+// The settings that change only how the map is drawn, not the map itself.
+function drawingStyle(s: MapSettings) {
+  return { border: s.border, coast: s.coast, waves: s.waves, compass_lines: s.compass_lines, shallows: s.shallows, deltas: s.deltas };
+}
 
 function readForm() {
   const [width, height] = SHAPES[els.shape.value] ?? SHAPES.portrait;
@@ -162,14 +164,15 @@ function syncForm() {
   els.deltas.checked = state.settings.deltas;
 }
 
+// Make a new map from the settings and show it. Maps are made in a background thread (see
+// maker.ts), so the page stays responsive meanwhile; if more changes come before it is
+// ready, only the map for the latest settings is shown.
 function draw() {
-  if (queued) return;
-  queued = true;
-  tick.port2.postMessage(null);
-  pendingDraw = () => {
-    queued = false;
-    const t0 = performance.now();
-    const map = generate(state.settings);
+  const t0 = performance.now();
+  void makeMap(state.settings).then((made) => {
+    if (!made) return;
+    // Drawing options changed while it was being made apply to it too.
+    const map = { ...made, settings: { ...made.settings, ...drawingStyle(state.settings) } };
     if (!state.current || state.current.settings.width !== map.settings.width || state.current.settings.height !== map.settings.height) state.zoom.reset(map.settings.width, map.settings.height);
     // A new map starts with no edits; they belong to the map they were made on.
     state.edits = state.linkEdits ?? NO_EDITS;
@@ -178,6 +181,8 @@ function draw() {
     state.redoStack = [];
     state.picked = [];
     paint(map);
+    // The symbol drawings may have arrived first; make their pictures now there is a map.
+    void buildSprites();
     // A short fade-in, so every redraw is visible even when little changes.
     els.map.classList.remove("fresh");
     void els.map.offsetWidth;
@@ -196,7 +201,7 @@ function draw() {
     state.confirmPublish = false;
     els.publish.textContent = "Publish to the public gallery";
     els.keepStatus.textContent = "";
-  };
+  });
 }
 
 export function svgFor(map: EditedMap, fontCss?: string, onScreen = false): string {

@@ -41,6 +41,9 @@ await build({
   logLevel: "warning",
 });
 
+// The background thread that makes maps for the map page (src/app/maker.ts).
+await build({ entryPoints: ["src/app/gen-worker.ts"], outfile: "public/gen-worker.js", bundle: true, format: "iife", target: "es2022", platform: "browser", minify: true, sourcemap: true, logLevel: "warning" });
+
 // The gallery page and the admin gallery review page.
 for (const [entry, outfile] of [
   ["src/gallery/app.ts", "public/gallery/gallery.js"],

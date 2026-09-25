@@ -242,6 +242,9 @@ function roadPath(hy: Hydrology, cl: Climate, roadCells: Uint8Array, riverFlow: 
   while (heap.size) {
     const i = heap.pop();
     if (i === to) break;
+    // An entry left behind when a cheaper way to the cell was found: the cell has already
+    // been expanded at that cheaper cost, so expanding it again could change nothing.
+    if (heap.lastKey > g[i] + h(i)) continue;
     const c = i % cols;
     const r = (i - c) / cols;
     for (let k = 0; k < 8; k++) {
@@ -321,41 +324,48 @@ function hasNeighbour(i: number, cols: number, rows: number, test: (j: number) =
   return false;
 }
 
+// Binary heap of cell indexes by key, lowest first. `lastKey` is the key of the cell last
+// popped.
 class Heap {
   private idx: number[] = [];
   private key: number[] = [];
+  lastKey = 0;
   get size() {
     return this.idx.length;
   }
   push(i: number, k: number) {
+    let p = this.idx.length;
     this.idx.push(i);
     this.key.push(k);
-    let p = this.idx.length - 1;
     while (p > 0) {
       const q = (p - 1) >> 1;
-      if (this.key[q] <= this.key[p]) break;
-      [this.idx[p], this.idx[q]] = [this.idx[q], this.idx[p]];
-      [this.key[p], this.key[q]] = [this.key[q], this.key[p]];
+      if (this.key[q] <= k) break;
+      this.idx[p] = this.idx[q];
+      this.key[p] = this.key[q];
       p = q;
     }
+    this.idx[p] = i;
+    this.key[p] = k;
   }
   pop(): number {
     const top = this.idx[0];
+    this.lastKey = this.key[0];
     const li = this.idx.pop()!;
     const lk = this.key.pop()!;
-    if (this.idx.length) {
-      this.idx[0] = li;
-      this.key[0] = lk;
+    const size = this.idx.length;
+    if (size) {
       let p = 0;
       for (;;) {
         let c = 2 * p + 1;
-        if (c >= this.idx.length) break;
-        if (c + 1 < this.idx.length && this.key[c + 1] < this.key[c]) c++;
-        if (this.key[p] <= this.key[c]) break;
-        [this.idx[p], this.idx[c]] = [this.idx[c], this.idx[p]];
-        [this.key[p], this.key[c]] = [this.key[c], this.key[p]];
+        if (c >= size) break;
+        if (c + 1 < size && this.key[c + 1] < this.key[c]) c++;
+        if (lk <= this.key[c]) break;
+        this.idx[p] = this.idx[c];
+        this.key[p] = this.key[c];
         p = c;
       }
+      this.idx[p] = li;
+      this.key[p] = lk;
     }
     return top;
   }

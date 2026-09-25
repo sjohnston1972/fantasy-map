@@ -29,6 +29,7 @@ The map page (`src/app/`) is split by job:
 - `main.ts`: starts the page from its link, runs the settings form, and draws the map
 - `dom.ts`: the page's elements, looked up once
 - `state.ts`: what the modules share (the map, its edits, the picked items, the zoom)
+- `maker.ts`: makes maps in a background thread (`gen-worker.ts`), so the page never freezes
 - `ink.ts`: loads the symbol drawings, and the pre-drawn pictures used on screen
 - `history.ts`: records changes, undo and redo, and redraws only the items that changed
 - `selection.ts`: picking items, and the box and action bar around the picked ones

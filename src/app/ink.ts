@@ -58,9 +58,15 @@ export async function loadKinds(roles: string[], repaint = true) {
 
 export const spritesWanted = () => state.sprites.size > 0 && state.zoom.level < SPRITE_MAX_ZOOM;
 
-export async function buildSprites() {
-  if (!state.ink || !state.current) return;
-  const before = state.sprites.size;
-  await makeSprites(state.ink, Object.keys(state.ink), state.current.settings.width, els.map.getBoundingClientRect().width, state.sprites);
-  if (state.sprites.size > before && state.current) paint(state.current);
+// Make pictures of any drawings that have none yet, once there is both ink and a map (so
+// it is called when either arrives). Calls run one after another, never side by side.
+let building: Promise<void> = Promise.resolve();
+export function buildSprites(): Promise<void> {
+  building = building.then(async () => {
+    if (!state.ink || !state.current) return;
+    const before = state.sprites.size;
+    await makeSprites(state.ink, Object.keys(state.ink), state.current.settings.width, els.map.getBoundingClientRect().width, state.sprites);
+    if (state.sprites.size > before && state.current) paint(state.current);
+  }).catch((err) => console.warn("Could not make pictures of the drawings; using the line drawings.", err));
+  return building;
 }

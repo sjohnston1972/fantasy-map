@@ -519,3 +519,19 @@ can only be reopened by dropping its file again on the Import page.
 - Not covered: drawing a picking box, and dragging a resize corner, have keyboard
   equivalents (Ctrl+A picks every symbol in view; the , and . keys resize) rather than a
   keyboard way to draw a box.
+
+## Speed check (spec: first page load under 3 seconds; a map in under 10)
+
+- Measured on the live site (Chromium, this machine): the page itself is ready in about
+  0.1 s, but the map was made on the page's only thread, which froze the page for 2 to 3.5 s
+  and held back the map's main font, so the browser's "loaded" moment came at 3.3 to 3.9 s.
+- Maps are now made in a background thread (`src/app/maker.ts`, `gen-worker.ts`): the page
+  stays responsive while a map is made, and a burst of changes makes at most two maps, the
+  last of which is shown. Browsers that cannot start the thread make maps on the page as
+  before. The main map font is preloaded.
+- The road search skips queue entries already superseded by a cheaper route, and its queue
+  no longer builds throwaway arrays: about 10% off towns and roads. Checked unchanged on 84
+  maps (12 seeds, every generator version 1 to 7) by comparing drawings before and after.
+- Making a map itself still takes about 1.2 to 1.5 s at best here; the height map's noise
+  is the largest share. Faster noise would change maps unless done with great care, so it
+  is left alone.

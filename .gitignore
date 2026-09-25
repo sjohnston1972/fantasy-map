@@ -27,6 +27,8 @@ public/admin/library/app.js
 public/admin/library/app.js.map
 public/app.js
 public/app.js.map
+public/gen-worker.js
+public/gen-worker.js.map
 public/fonts/
 public/gallery/gallery.js
 public/gallery/gallery.js.map
