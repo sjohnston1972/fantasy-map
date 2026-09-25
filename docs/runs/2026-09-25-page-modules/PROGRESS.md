@@ -52,3 +52,14 @@ relief overlay, `applyView` and `previewView`, and one block calling the `init..
 functions in the order the listeners were registered before. Unused imports removed; a
 comment at the top lists the modules. Checks: typecheck exit 0; unit tests 200 and 28
 passed; Chromium 23 passed, 2 skipped. `wc -l < src/app/main.ts`: 306 (target under 500).
+
+## 2026-09-25: step 11, full check (done)
+
+- `npm run typecheck`: exit 0.
+- `npm test`: 200 unit tests and 28 API tests passed.
+- `npm run e2e` (all browsers): 80 passed, 45 skipped, 0 failed, in 12.1 minutes (the same
+  counts as the baseline).
+- `public/app.js`: 111,503 bytes, 2.7% over the baseline of 108,592 (limit 5%).
+- README.md has a "Page code" section listing the `src/app/` modules.
+
+Not deployed, as the plan says: Steven reviews and deploys.

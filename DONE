@@ -1,0 +1,22 @@
+# Run finished: split the map page code into modules (2026-09-25)
+
+Carried out in the interactive session at Steven's request ("Do the tidy up").
+
+What it did
+- src/app/main.ts went from about 1,480 lines to 306. The rest now lives in dom, state,
+  ink, history, selection, gestures, keys, clipboard, resize, actions, palette and panels
+  (all in src/app/; README.md "Page code" lists what each does).
+- No change in behaviour: all checks pass as before (typecheck; 200 unit and 28 API tests;
+  browser tests on all five browsers, 80 passed, 45 skipped, 0 failed). The page bundle is
+  2.7% bigger (shared values are now read as state.x, which the minifier cannot shorten).
+- Steps 2 to 8b went into one commit rather than one each: the 14-minute baseline browser
+  run was serving the built page, so they were made with the type checker after each and
+  then checked together.
+
+Not done
+- Not deployed (the plan says Steven reviews and deploys). Deploy with `npx wrangler deploy`.
+
+Archive: docs/runs/2026-09-25-page-modules/ (PLAN.md and PROGRESS.md).
+
+Suggested next run: short links (a /m/<code> route backed by D1), once Steven agrees; or
+start Phase 2 world maps after planning it in an interactive session.

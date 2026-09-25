@@ -6,7 +6,7 @@ A free web app that procedurally generates black-and-white, hand-inked fantasy m
 - `docs/sheet-import-spec.md`: admin tool that turns symbol sheets into library icons
 - `example artifacts/`: reference symbol sheets and maps used for testing
 - `src/gen/`: the map generator, one module per pipeline stage (seeded, runs in the browser)
-- `src/app/main.ts`: the public map page at `/`
+- `src/app/`: the public map page at `/` (see "Page code" below)
 - `src/worker.ts`: the Cloudflare Worker (API routes under `/api/`)
 - `src/api/import.ts`: the sheet import API (R2 files, D1 catalogue)
 - `src/api/auth.ts`: checks the Cloudflare Access sign-in on admin API calls
@@ -21,6 +21,26 @@ A free web app that procedurally generates black-and-white, hand-inked fantasy m
 - `docs/open-questions.md`: decisions waiting for an interactive session
 - `test/`: automated checks, run with `npm test`
 - `public/`: static files served to the browser
+
+## Page code
+
+The map page (`src/app/`) is split by job:
+
+- `main.ts`: starts the page from its link, runs the settings form, and draws the map
+- `dom.ts`: the page's elements, looked up once
+- `state.ts`: what the modules share (the map, its edits, the picked items, the zoom)
+- `ink.ts`: loads the symbol drawings, and the pre-drawn pictures used on screen
+- `history.ts`: records changes, undo and redo, and redraws only the items that changed
+- `selection.ts`: picking items, and the box and action bar around the picked ones
+- `gestures.ts`: dragging, picking boxes, and panning and zooming with the pointer
+- `keys.ts`: the keyboard shortcuts
+- `clipboard.ts`: copy, cut and paste
+- `resize.ts`: resizing by the box's corners, and Smaller and Bigger
+- `actions.ts`: edit mode, Swap, Forward, Back, Delete, and rewording names
+- `palette.ts`: Add symbols
+- `panels.ts`: saving SVG and PNG files, the share link, My maps and the public gallery
+- `zoom.ts`, `sprites.ts`, `export.ts`, `share.ts`, `mymaps.ts`: helpers for zooming,
+  the on-screen pictures, file export, share codes and My maps
 
 ## Running it
 
