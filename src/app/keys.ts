@@ -6,7 +6,7 @@ import { deletePicked, layerSelected, swapSelected } from "./actions";
 import { els } from "./dom";
 import { copyPicked, cutPicked, pasteClipboard } from "./clipboard";
 import { movePicked, redo, undo } from "./history";
-import { closePalette } from "./palette";
+import { closePalette, placeAt } from "./palette";
 import { resizeInPlace } from "./resize";
 import { keysIn, primary, select, showSelection } from "./selection";
 import { state } from "./state";
@@ -29,7 +29,8 @@ export function initKeys() {
 
   // Keyboard: N and Shift+N step through the items, arrows nudge, S swaps, ] and [ layer
   // (Shift for all the way), Delete removes, Escape lets go, Ctrl+Z undoes, and Ctrl+C,
-  // Ctrl+X and Ctrl+V copy, cut and paste.
+  // Ctrl+X and Ctrl+V copy, cut and paste. With a drawing chosen in Add symbols, Enter on the
+  // map places it in the middle of the view (then the arrows move it).
   document.addEventListener("keydown", (e) => {
     if (!state.editing) return;
     const typing = e.target instanceof Element && !!e.target.closest("input, select, textarea");
@@ -57,6 +58,9 @@ export function initKeys() {
       if (!keys.length) return;
       const at = primary() ? keys.indexOf(primary()!) : -1;
       select(keys[(at + (e.shiftKey ? -1 : 1) + keys.length) % keys.length]);
+    } else if (e.key === "Enter" && state.placing && e.target === els.map) {
+      const r = els.map.getBoundingClientRect();
+      placeAt(r.left + r.width / 2, r.top + r.height / 2);
     } else if (e.key === "Escape") {
       if (state.placing) closePalette();
       else select(null);

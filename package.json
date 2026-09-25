@@ -12,6 +12,7 @@
     "e2e": "npm run build && playwright test"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.13.0",
     "@cloudflare/workers-types": "^5.20260923.1",
     "@playwright/test": "^1.63.0",
     "@resvg/resvg-js": "^2.6.2",

@@ -507,3 +507,15 @@ can only be reopened by dropping its file again on the Import page.
 - Why a new version: adding lighthouses to a version 6 map would renumber its symbols, and
   saved edits (which name symbols by number) would land on the wrong ones. Version 6 links
   keep the old rule and draw exactly as before; new maps are version 7.
+
+## Accessibility check (spec: keyboard use and contrast)
+
+- The axe checker (WCAG 2.1 A and AA rules) finds nothing on the map page, with the editing
+  tools and the Add symbols palette open, or on the gallery. `e2e/accessibility.spec.ts`
+  keeps it that way (Chromium only; the rules do not depend on the engine).
+- Keyboard: a map can be made, edited (pick with N, move with the arrows, delete, undo, add
+  from the palette) and saved without a mouse. The one gap was placing a palette drawing,
+  which needed a click on the map: Enter on the map now places it in the middle of the view.
+- Not covered: drawing a picking box, and dragging a resize corner, have keyboard
+  equivalents (Ctrl+A picks every symbol in view; the , and . keys resize) rather than a
+  keyboard way to draw a box.

@@ -116,7 +116,7 @@ export function choose(role: string, index: number) {
   state.placing = state.placing?.role === role && state.placing.index === index ? null : { role, index };
   for (const [i, b] of [...els.palGrid.children].entries()) b.setAttribute("aria-selected", String(!!state.placing && i === index));
   els.map.classList.toggle("placing", !!state.placing);
-  if (state.placing) els.palHint.textContent = "Now click the map where it should stand. Each click places another.";
+  if (state.placing) els.palHint.textContent = "Now click the map where it should stand. Each click places another. (Or press Enter on the map to place one in the middle of the view.)";
 }
 
 // Place the chosen drawing with its base centred a little below the pointer, so it looks
