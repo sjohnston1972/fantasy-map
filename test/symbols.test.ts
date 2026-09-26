@@ -200,6 +200,32 @@ describe("contours", () => {
     for (const l of loops) expect(l.length).toBeGreaterThanOrEqual(4);
   });
 
+  it("soft outlines follow a staircase at its true slope, not the grid's 45-degree steps", () => {
+    // A shore rising one cell for every two across: a slope of 1 in 2.
+    const cols = 40;
+    const rows = 30;
+    const inside = (i: number) => Math.floor(i / cols) > 5 + (i % cols) / 2;
+    const angles = (loops: [number, number][][]) =>
+      loops[0].map((p, k, l) => {
+        const q = l[(k + 1) % l.length];
+        return Math.round((Math.atan2(q[1] - p[1], q[0] - p[0]) * 180) / Math.PI);
+      });
+    const hard = angles(outlines(cols, rows, inside));
+    const soft = angles(outlines(cols, rows, inside, true));
+    const slope = Math.round((Math.atan2(1, 2) * 180) / Math.PI); // about 27 degrees
+    const near = (a: number[]) => a.filter((d) => Math.abs(Math.abs(d) - slope) <= 4 || Math.abs(Math.abs(d) - (180 - slope)) <= 4).length;
+    expect(near(hard)).toBe(0);
+    expect(near(soft)).toBeGreaterThan(soft.length * 0.3);
+  });
+
+  it("soft outlines keep every island and lake of a real map", () => {
+    const { cols, rows, water } = maps[0].water;
+    const hard = outlines(cols, rows, (i) => water[i] !== WATER_SEA);
+    const soft = outlines(cols, rows, (i) => water[i] !== WATER_SEA, true);
+    expect(soft.length).toBe(hard.length);
+    expect(soft.map((l) => l.length)).toEqual(hard.map((l) => l.length));
+  });
+
   it("simplifies a straight line to its ends", () => {
     expect(simplify([[0, 0], [1, 0], [2, 0], [3, 0], [4, 0]], 0.1)).toEqual([[0, 0], [4, 0]]);
   });

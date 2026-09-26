@@ -164,16 +164,18 @@ function itemDrawer(m: SvgInput, defs: InkDefs) {
     bridge(b: Bridge, k: number): string {
       const key = `bridge:${b.index ?? k}`;
       const bridge = pickSymbol(m.ink, "bridge", b.variant ?? hashVariant(b.cell, 2654435761));
+      // Drawn where the river and road through its crossing are drawn (see bend).
+      const [bx, by] = bendAt(b.x, b.y, px);
       if (bridge) {
         // Drawn upright over the crossing, centred on the river.
         const bw = 24 * px * (b.size ?? 1);
-        return `<g data-key="${key}" data-role="bridge">${defs.use(bridge, b.x, b.y + (bw * bridge.h) / bridge.w / 2, bw, bw, false, W)}</g>`;
+        return `<g data-key="${key}" data-role="bridge">${defs.use(bridge, bx, by + (bw * bridge.h) / bridge.w / 2, bw, bw, false, W)}</g>`;
       }
       const deg = (b.angle * 180) / Math.PI;
       const L = 9 * px;
       const Wd = 5 * px;
       return (
-        `<g data-key="${key}" transform="translate(${b.x.toFixed(1)} ${b.y.toFixed(1)}) rotate(${deg.toFixed(1)})" data-role="bridge">` +
+        `<g data-key="${key}" transform="translate(${bx.toFixed(1)} ${by.toFixed(1)}) rotate(${deg.toFixed(1)})" data-role="bridge">` +
         `<rect x="${(-L / 2).toFixed(1)}" y="${(-Wd / 2).toFixed(1)}" width="${L.toFixed(1)}" height="${Wd.toFixed(1)}" fill="#fff" stroke="none"/>` +
         `<path d="M${(-L / 2).toFixed(1)} ${(-Wd / 2).toFixed(1)}H${(L / 2).toFixed(1)}M${(-L / 2).toFixed(1)} ${(Wd / 2).toFixed(1)}H${(L / 2).toFixed(1)}" stroke="${INK}" stroke-width="${(1.2 * px).toFixed(2)}"/></g>`
       );
@@ -426,8 +428,10 @@ function renderBase(W: number, H: number, hy: Hydrology, towns?: Settlements, co
   const sx = W / hy.cols;
   const sy = H / hy.rows;
   const px = W / 1600;
-  // Outlines traced from the grid, in map pixels, with a hand-drawn waver (see waver below).
-  const toMap = (loop: Pt[]): Pt[] => waver(loop.map(([x, y]) => [x * sx, y * sy] as Pt), true, 1.6 * px);
+  // Outlines traced from the grid, in map pixels, bent like every other line on the map (see
+  // bend below) and given a hand-drawn waver.
+  const toMap = (loop: Pt[]): Pt[] => waver(bend(loop.map(([x, y]) => [x * sx, y * sy] as Pt), px), true, 1.6 * px);
+  const soft = (inside: (i: number) => boolean) => outlines(hy.cols, hy.rows, inside, true);
   const parts: string[] = [];
 
   const seaDist = distanceFrom(hy, (i) => hy.water[i] !== WATER_SEA);
@@ -437,30 +441,30 @@ function renderBase(W: number, H: number, hy: Hydrology, towns?: Settlements, co
   if (sea && sea.waves > 0) parts.push(waveMarks(hy, sx, sy, px, seaDist, (i) => hy.water[i] === WATER_SEA, 6, sea.waves, "sea"));
   if (coast === "stipple") {
     // A second, fine shore line just offshore, and stippled dots fading out to sea.
-    const offshore = outlines(hy.cols, hy.rows, (i) => hy.water[i] !== WATER_SEA || seaDist[i] <= 1).map((l) => toMap(smoothLoop(l, 3)));
+    const offshore = soft((i) => hy.water[i] !== WATER_SEA || seaDist[i] <= 1).map((l) => toMap(smoothLoop(l, 3)));
     parts.push(`<path d="${pathOf(offshore)}" fill="none" stroke="${INK}" stroke-width="${(0.9 * px).toFixed(2)}"/>`);
     parts.push(stipple(hy, sx, sy, px, (i) => (hy.water[i] === WATER_SEA ? seaDist[i] : Infinity), 7, 1.1));
   } else {
     // Ripple lines in the sea, following the coast at two distances (engraved-map style).
     for (const [d, width] of [[2, 0.9], [4.5, 0.6]] as const) {
-      const loops = outlines(hy.cols, hy.rows, (i) => hy.water[i] !== WATER_SEA || seaDist[i] <= d).map((l) => toMap(smoothLoop(l, 3)));
+      const loops = soft((i) => hy.water[i] !== WATER_SEA || seaDist[i] <= d).map((l) => toMap(smoothLoop(l, 3)));
       parts.push(`<path d="${pathOf(loops)}" fill="none" stroke="${INK}" stroke-width="${width}" stroke-opacity="0.8"/>`);
     }
   }
 
   // Land, with a bold coastline.
-  const land = outlines(hy.cols, hy.rows, (i) => hy.water[i] !== WATER_SEA).map((l) => toMap(smoothLoop(l, 3)));
+  const land = soft((i) => hy.water[i] !== WATER_SEA).map((l) => toMap(smoothLoop(l, 3)));
   parts.push(`<path d="${pathOf(land)}" fill="#fff" fill-rule="evenodd" stroke="${INK}" stroke-width="2.4" stroke-linejoin="round"/>`);
 
   // Lakes: shore line and one ripple inside.
-  const lakes = outlines(hy.cols, hy.rows, (i) => hy.water[i] === WATER_LAKE).map((l) => toMap(smoothLoop(l, 3)));
+  const lakes = soft((i) => hy.water[i] === WATER_LAKE).map((l) => toMap(smoothLoop(l, 3)));
   if (lakes.length) {
     parts.push(`<path d="${pathOf(lakes)}" fill="#fff" fill-rule="evenodd" stroke="${INK}" stroke-width="1.6" stroke-linejoin="round"/>`);
     const lakeDist = distanceFrom(hy, (i) => hy.water[i] !== WATER_LAKE);
     if (coast === "stipple") {
       parts.push(stipple(hy, sx, sy, px, (i) => (hy.water[i] === WATER_LAKE ? lakeDist[i] : Infinity), 3.5, 1.2));
     } else {
-      const inner = outlines(hy.cols, hy.rows, (i) => hy.water[i] === WATER_LAKE && lakeDist[i] > 2).map((l) => toMap(smoothLoop(l, 3)));
+      const inner = soft((i) => hy.water[i] === WATER_LAKE && lakeDist[i] > 2).map((l) => toMap(smoothLoop(l, 3)));
       if (inner.length) parts.push(`<path d="${pathOf(inner)}" fill="none" stroke="${INK}" stroke-width="0.6" stroke-opacity="0.8"/>`);
     }
     // Wave marks on the open water of larger lakes, clear of the shore and its ripple.
@@ -470,10 +474,20 @@ function renderBase(W: number, H: number, hy: Hydrology, towns?: Settlements, co
   // Rivers: filled ribbons, hairline at the source and widening with the water carried.
   parts.push(`<g fill="${INK}">`);
   const minFlow = Math.min(...hy.rivers.map((r) => r.flow[0] ?? Infinity));
-  for (const r of hy.rivers) {
-    let pts = r.cells.map((i) => [((i % hy.cols) + 0.5) * sx, (Math.floor(i / hy.cols) + 0.5) * sy] as Pt);
-    for (let k = 0; k < 3; k++) pts = smoothLine(pts); // three passes hide the grid's staircase
-    pts = waver(drift(pts, 7 * px, 70 * px, r.end === "sea" || r.end === "lake" ? 30 * px : 0), false, 1.6 * px);
+  // A river follows the grid in eight directions, so its course is first eased along a few
+  // cells either way: steps become lines at their true slope and sharp kinks become bends.
+  const courses = hy.rivers.map((r) => easeLine(r.cells.map((i) => [((i % hy.cols) + 0.5) * sx, (Math.floor(i / hy.cols) + 0.5) * sy] as Pt)));
+  // A tributary then ends exactly on the eased course of the river it joins.
+  const onCourse = new Map<number, Pt>();
+  hy.rivers.forEach((r, n) => r.cells.forEach((i, k) => k < r.cells.length - 1 && onCourse.set(i, courses[n][k])));
+  hy.rivers.forEach((r, n) => {
+    const join = r.end === "river" ? onCourse.get(r.cells[r.cells.length - 1]) : undefined;
+    if (join) courses[n][courses[n].length - 1] = join;
+  });
+  for (const [n, r] of hy.rivers.entries()) {
+    let pts = courses[n];
+    for (let k = 0; k < 3; k++) pts = smoothLine(pts); // three passes round what is left
+    pts = waver(bend(pts, px), false, 1.6 * px);
     const widths = pts.map((_, k) => {
       const f = r.flow[Math.min(r.flow.length - 1, Math.floor((k / pts.length) * r.flow.length))];
       return Math.min(2.6, 0.6 + 0.3 * Math.log2(Math.max(1, f / minFlow))) * px;
@@ -488,7 +502,7 @@ function renderBase(W: number, H: number, hy: Hydrology, towns?: Settlements, co
     const roadPaths = towns.roads.map((road) => {
       let pts = road.cells.map((i) => [((i % hy.cols) + 0.5) * sx, (Math.floor(i / hy.cols) + 0.5) * sy] as Pt);
       for (let k = 0; k < 3; k++) pts = smoothLine(pts);
-      pts = waver(drift(pts, 4 * px, 80 * px, 0), false, 1.2 * px);
+      pts = waver(bend(pts, px), false, 1.2 * px);
       return "M" + simplify(pts, 0.3).map(([x, y]) => `${x.toFixed(1)} ${y.toFixed(1)}`).join("L");
     });
     parts.push(`<path d="${roadPaths.join("")}" fill="none" stroke="${INK}" stroke-width="${(1.9 * px).toFixed(2)}" stroke-dasharray="${(7 * px).toFixed(1)} ${(4.5 * px).toFixed(1)}" stroke-linecap="round"/>`);
@@ -606,23 +620,26 @@ function waver(pts: Pt[], closed: boolean, amount: number): Pt[] {
   return out;
 }
 
-// Drift: shift every point of a line by a smooth field that depends only on where it is, up
-// to `amount`, with bends about `scale` apart. A long straight run through the field picks up
-// gentle bends, and two lines through the same spot shift alike, so rivers still meet where
-// they join. `fadeEnd`: over this last stretch the drift fades out, so a river still reaches
-// the shore it runs into.
-function drift(pts: Pt[], amount: number, scale: number, fadeEnd: number): Pt[] {
-  let left = 0;
-  const out: Pt[] = new Array(pts.length);
-  for (let i = pts.length - 1; i >= 0; i--) {
-    if (i < pts.length - 1) left += Math.hypot(pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1]);
-    const [x, y] = pts[i];
-    const f = fadeEnd > 0 ? Math.min(1, left / fadeEnd) : 1;
-    const dx = (valueNoise(x / scale + 11, y / scale) + valueNoise(x / (scale * 0.4) + 40, y / (scale * 0.4)) * 0.4) * amount * f;
-    const dy = (valueNoise(x / scale + 70, y / scale + 3) + valueNoise(x / (scale * 0.4) + 90, y / (scale * 0.4) + 7) * 0.4) * amount * f;
-    out[i] = [x + dx, y + dy];
-  }
-  return out;
+// Bend: every line traced from the grid (coasts, lake shores, rivers, roads) and every
+// bridge is shifted by one smooth field that depends only on where it is: broad bends about
+// 70 map pixels apart, and smaller meanders about 26 apart (on a 1600-pixel map). Long
+// straight runs pick up natural bends, and because lines through the same spot shift alike,
+// rivers still meet where they join and reach the shore, ripple lines stay parallel to the
+// coast, and bridges stay on their rivers and roads.
+function bend(pts: Pt[], px: number): Pt[] {
+  return pts.map(([x, y]) => bendAt(x, y, px));
+}
+
+export function bendAt(x: number, y: number, px: number): Pt {
+  [x, y] = drift(x, y, 7 * px, 70 * px);
+  return drift(x, y, 4 * px, 26 * px);
+}
+
+// Shift a point by up to `amount` in a smooth field with bends about `scale` apart.
+function drift(x: number, y: number, amount: number, scale: number): Pt {
+  const dx = (valueNoise(x / scale + 11, y / scale) + valueNoise(x / (scale * 0.4) + 40, y / (scale * 0.4)) * 0.4) * amount;
+  const dy = (valueNoise(x / scale + 70, y / scale + 3) + valueNoise(x / (scale * 0.4) + 90, y / (scale * 0.4) + 7) * 0.4) * amount;
+  return [x + dx, y + dy];
 }
 
 function nudge(x: number, y: number, amount: number): Pt {
@@ -686,7 +703,7 @@ function shallows(hy: Hydrology, sx: number, sy: number, px: number, toMap: (loo
   if (!(shore > deepest)) return "";
   const shallowAt = deepest + (shore - deepest) * 0.93;
   const shallow = (i: number) => hy.water[i] !== WATER_SEA || hy.heights[i] >= shallowAt;
-  const loops = outlines(hy.cols, hy.rows, shallow).map((l) => toMap(smoothLoop(l, 3)));
+  const loops = outlines(hy.cols, hy.rows, shallow, true).map((l) => toMap(smoothLoop(l, 3)));
   const line = loops.length ? `<path d="${pathOf(loops)}" fill="none" stroke="${INK}" stroke-width="${(0.9 * px).toFixed(2)}" stroke-dasharray="0 ${(3.2 * px).toFixed(1)}" stroke-linecap="round"/>` : "";
   const dots = stipple(hy, sx, sy, px, (i) => (hy.water[i] === WATER_SEA && hy.heights[i] >= shallowAt ? 1 : Infinity), 1, 0.12);
   return line + dots;
@@ -837,6 +854,30 @@ function pathOf(loops: Pt[][]): string {
 }
 
 // One Chaikin pass on an open line, keeping both ends.
+// Ease an open line: each point moves to a weighted average of itself and the two points
+// either side (1 4 6 4 1), twice over. The ends stay put, so a river still starts at its
+// spring and reaches its mouth.
+function easeLine(pts: Pt[]): Pt[] {
+  let p = pts;
+  for (let pass = 0; pass < 2; pass++) {
+    const out = p.map((pt) => [...pt] as Pt);
+    for (let k = 1; k < p.length - 1; k++) {
+      let x = 0;
+      let y = 0;
+      let wsum = 0;
+      for (const [d, w] of [[-2, 1], [-1, 4], [0, 6], [1, 4], [2, 1]]) {
+        const q = p[Math.min(p.length - 1, Math.max(0, k + d))];
+        x += q[0] * w;
+        y += q[1] * w;
+        wsum += w;
+      }
+      out[k] = [x / wsum, y / wsum];
+    }
+    p = out;
+  }
+  return p;
+}
+
 function smoothLine(pts: Pt[]): Pt[] {
   if (pts.length < 3) return pts;
   const out: Pt[] = [pts[0]];
@@ -921,7 +962,8 @@ export function asDrawing(m: Pick<SvgInput, "width" | "symbols" | "towns" | "lab
     const b = m.towns!.bridges.find((b, k) => (b.index ?? k) === id)!;
     const bw = 24 * px * (b.size ?? 1);
     const icon = pickSymbol(m.ink, "bridge", d.variant);
-    return { role: "bridge", x: b.x, y: b.y + (icon ? (bw * icon.h) / icon.w / 2 : 0), w: bw, h: bw, variant: d.variant, flip: false };
+    const [bx, by] = bendAt(b.x, b.y, px);
+    return { role: "bridge", x: bx, y: by + (icon ? (bw * icon.h) / icon.w / 2 : 0), w: bw, h: bw, variant: d.variant, flip: false };
   }
   if (kind === "emblem") {
     const e = m.labels!.emblems.find((e, k) => (e.index ?? k) === id)!;
