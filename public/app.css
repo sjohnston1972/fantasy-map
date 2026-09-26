@@ -1,45 +1,78 @@
+/* The page is an app that fills the window: a slim bar along the top, the settings down the
+   left, and the map on a slate desk filling the rest. Nothing scrolls but the settings (only
+   if the window is very short) and the symbol palette. On a phone the page stacks and scrolls. */
 :root {
   --ink: #1a1714;
-  --paper: #f6f1e6;
-  --card: #fffdf8;
-  --rule: #d8cfbd;
-  --faint: #6b6358;
+  --paper: #f7f5f0;
+  --card: #fffefb;
+  --rule: #dcd6ca;
+  --faint: #625a50;
   --focus: #2563eb;
+  --desk: #2f3a3f; /* the slate the map lies on */
+  --desk-ink: #dde3e5; /* text on the desk */
+  --desk-faint: #a9b4b8;
+  --brass: #b8925a; /* one warm note: the rule under the name, the open menu */
+  --bar: 48px;
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; }
-body {
-  background: var(--paper);
-  color: var(--ink);
-  font: 15px/1.45 system-ui, sans-serif;
-  padding: 16px clamp(16px, 3vw, 32px) 32px;
+body { color: var(--ink); font: 14px/1.4 system-ui, sans-serif; background: var(--paper); }
+/* The map page (body.app); other pages that share this sheet, such as the gallery, keep
+   their own page layout. */
+html:has(body.app), body.app { height: 100%; }
+body.app {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--desk);
 }
-h1 { font-family: "IM Fell English SC", Georgia, serif; font-weight: 400; font-size: clamp(1.8rem, 5vw, 2.6rem); margin: 0; letter-spacing: 0.02em; }
-.tag { margin: 2px 0 16px; color: var(--faint); font-family: "IM Fell English", Georgia, serif; font-style: italic; font-size: 1.05rem; }
 :focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
 
-.layout { display: grid; grid-template-columns: 280px minmax(0, 1fr); gap: 20px; align-items: start; }
-@media (max-width: 760px) { .layout { grid-template-columns: minmax(0, 1fr); } .stage { order: -1; } }
+/* Top bar. */
+.app .top { flex: none; height: var(--bar); display: flex; align-items: center; gap: 20px; padding: 0 16px; background: var(--paper); border-bottom: 1px solid var(--rule); }
+.brand { margin: 0; font-family: "IM Fell English SC", Georgia, serif; font-weight: 400; font-size: 1.45rem; letter-spacing: 0.02em; line-height: 1; padding-bottom: 3px; border-bottom: 2px solid var(--brass); white-space: nowrap; }
+.top-actions { display: flex; gap: 4px; margin-left: auto; }
+.top-btn { height: 32px; padding: 0 12px; font: inherit; font-weight: 600; color: var(--ink); background: transparent; border: 1px solid transparent; border-radius: 6px; cursor: pointer; }
+.top-btn:hover { background: #ece7dc; }
+.top-btn[aria-expanded="true"] { border-color: var(--brass); background: var(--card); }
+.top-nav { display: flex; gap: 14px; padding-left: 16px; border-left: 1px solid var(--rule); }
+.top-nav a, .fine a, #keep-status a { color: var(--ink); font-weight: 600; }
 
-.panel { background: var(--card); border: 1px solid var(--rule); border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 14px; position: sticky; top: 16px; }
-@media (max-width: 760px) { .panel { position: static; } }
-.field { display: flex; flex-direction: column; gap: 4px; }
-.field > span:first-child { font-weight: 600; font-size: 0.9rem; display: flex; justify-content: space-between; }
-.field output { font-weight: 400; color: var(--faint); }
-.field small { color: var(--faint); font-size: 0.78rem; }
-.seed-row { display: flex; gap: 6px; }
-input[type="number"], input[type="text"], select { width: 100%; padding: 6px 8px; font: inherit; color: var(--ink); background: #fff; border: 1px solid var(--rule); border-radius: 5px; }
-input[type="range"] { width: 100%; accent-color: var(--ink); }
-.icon-btn { flex: none; width: 40px; display: grid; place-items: center; font-size: 1.3rem; line-height: 1; border: 1.5px solid var(--ink); border-radius: 5px; background: var(--card); color: var(--ink); cursor: pointer; }
-.icon-btn:hover { background: #efe6d2; }
-.generate { padding: 9px 14px; font: inherit; font-weight: 600; letter-spacing: 0.02em; border: 0; border-radius: 6px; background: var(--ink); color: var(--paper); cursor: pointer; }
+/* Settings on the left, the map beside them. */
+.layout { flex: 1; min-height: 0; display: grid; grid-template-columns: 272px minmax(0, 1fr); }
+.panel { min-height: 0; overflow-y: auto; background: var(--paper); border-right: 1px solid var(--rule); padding: 10px 14px 12px; display: flex; flex-direction: column; gap: 8px; }
+.seed-block { display: flex; flex-direction: column; gap: 6px; }
+.seed-block small { color: var(--faint); font-size: 0.74rem; line-height: 1.3; }
+.group { margin: 0; padding: 6px 0 0; border: 0; border-top: 1px solid var(--rule); display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.group legend { float: left; width: 100%; padding: 0; font-family: "IM Fell English", Georgia, serif; font-size: 1.05rem; }
+.group legend + * { clear: both; }
+.field { display: flex; flex-direction: column; gap: 0; min-width: 0; }
+.field > span:first-child { font-weight: 600; font-size: 0.82rem; display: flex; justify-content: space-between; }
+.field output { font-weight: 400; color: var(--faint); font-variant-numeric: tabular-nums; }
+.pairs { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 8px; }
+.checks { display: flex; flex-wrap: wrap; gap: 2px 12px; }
+input[type="number"], input[type="text"], select { width: 100%; padding: 4px 7px; font: inherit; color: var(--ink); background: #fff; border: 1px solid var(--rule); border-radius: 5px; }
+input[type="range"] { width: 100%; height: 20px; margin: 0; accent-color: var(--ink); }
+.check { display: flex; align-items: center; gap: 6px; font-size: 0.85rem; }
+.generate { padding: 8px 14px; font: inherit; font-weight: 600; border: 0; border-radius: 6px; background: var(--ink); color: var(--paper); cursor: pointer; }
 .generate:hover { background: #3a332c; }
-.note { margin: 0; font-size: 0.8rem; color: var(--faint); border-top: 1px solid var(--rule); padding-top: 10px; }
 
-.stage { margin: 0; display: flex; flex-direction: column; align-items: center; gap: 8px; }
-/* The map box takes its shape from the map (set from script) and fits the window height. */
-.map-frame { display: flex; justify-content: center; width: 100%; height: calc(100vh - 150px); }
-.map-box { position: relative; overflow: hidden; overflow: clip; height: 100%; max-width: 100%; background: #fff; box-shadow: 0 1px 6px rgba(0,0,0,0.15); }
+/* Share, keep and download: small panels dropping from the top bar. */
+.pop { inset: auto; top: calc(var(--bar) + 6px); right: 16px; margin: 0; width: 300px; padding: 14px; background: var(--card); color: var(--ink); border: 1px solid var(--rule); border-radius: 8px; box-shadow: 0 10px 30px rgba(20, 28, 32, 0.28); display: none; flex-direction: column; gap: 8px; }
+.pop:popover-open { display: flex; }
+.group-title { margin: 0; font-family: "IM Fell English", Georgia, serif; font-weight: 400; font-size: 1.15rem; }
+.pop output { font-size: 0.8rem; color: var(--faint); min-height: 1.2em; }
+@media (prefers-reduced-motion: no-preference) {
+  .pop:popover-open { animation: drop-in 0.14s ease-out; }
+  @keyframes drop-in { from { opacity: 0; transform: translateY(-4px); } }
+}
+
+/* The map area: tools, then the map filling what is left, then the caption. */
+.stage { margin: 0; min-width: 0; min-height: 0; display: flex; flex-direction: column; align-items: stretch; gap: 6px; padding: 10px 16px 8px; color: var(--desk-ink); }
+.work { flex: 1; min-height: 0; }
+/* The map box takes its shape from the map (set from script) and fits the room left. */
+.map-frame { display: flex; justify-content: center; width: 100%; height: 100%; }
+.map-box { position: relative; overflow: hidden; overflow: clip; height: 100%; max-width: 100%; background: #fff; box-shadow: 0 2px 4px rgba(0,0,0,0.25), 0 12px 32px rgba(0,0,0,0.35); }
 .map, .map svg { display: block; width: 100%; height: 100%; }
 /* The map box and map clip what sticks out rather than hiding it: a hidden overflow can
    still be scrolled, and Safari scrolled it when an item was pressed, shifting the map.
@@ -49,9 +82,7 @@ input[type="range"] { width: 100%; accent-color: var(--ink); }
 .map { position: relative; overflow: hidden; overflow: clip; }
 .map svg { position: absolute; left: -25%; top: -25%; width: 150%; height: 150%; overflow: hidden; will-change: transform; transform-origin: 16.6667% 16.6667%; }
 .relief { position: absolute; inset: 0; width: 100%; height: 100%; mix-blend-mode: multiply; opacity: 0.55; pointer-events: none; }
-@media (max-width: 760px) { .map-frame { height: auto; } .map-box { height: auto; width: 100%; } }
-.check { display: flex; align-items: center; gap: 8px; font-size: 0.9rem; }
-.stage figcaption { font-size: 0.85rem; color: var(--faint); text-align: center; }
+.stage figcaption { flex: none; font-size: 0.78rem; color: var(--desk-faint); text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* Fade in each newly drawn map. */
 .map.fresh { animation: ink-in 0.4s ease-out; }
@@ -63,9 +94,6 @@ input[type="range"] { width: 100%; accent-color: var(--ink); }
 .plain:hover:not(:disabled) { background: #efe6d2; }
 .plain:disabled { opacity: 0.4; cursor: default; }
 .plain[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
-.exports { display: flex; flex-direction: column; gap: 6px; border-top: 1px solid var(--rule); padding-top: 12px; }
-.group-title { font-weight: 600; font-size: 0.9rem; }
-.exports output { font-size: 0.8rem; color: var(--faint); min-height: 1.2em; }
 .toolbar { width: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .edit-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; flex: 1; }
 .edit-tools[hidden], .rename[hidden] { display: none; }
@@ -80,9 +108,6 @@ input[type="range"] { width: 100%; accent-color: var(--ink); }
 .map [data-key].selected { filter: drop-shadow(0 0 2px var(--focus)) drop-shadow(0 0 2px var(--focus)); }
 .fine { color: var(--faint); font-size: 0.76rem; }
 #share-link { font-size: 0.8rem; }
-.top { position: relative; }
-.top-nav { position: absolute; right: 0; top: 6px; display: flex; gap: 14px; }
-.top-nav a, .fine a, #keep-status a { color: var(--ink); font-weight: 600; }
 #keep-status { font-size: 0.8rem; color: var(--faint); }
 
 /* Zoom controls, over the map's top-right corner. */
@@ -91,7 +116,7 @@ input[type="range"] { width: 100%; accent-color: var(--ink); }
 .zoom-ctl button#zoom-fit { font-size: 0.8rem; }
 .zoom-ctl button:hover:not(:disabled) { background: #efe6d2; }
 .zoom-ctl button:disabled { opacity: 0.35; cursor: default; }
-.zoom-ctl output { min-width: 3.4em; text-align: center; font-size: 0.8rem; color: var(--faint); font-variant-numeric: tabular-nums; }
+.zoom-ctl output { min-width: 3.4em; text-align: center; font-size: 0.8rem; color: var(--desk-faint); font-variant-numeric: tabular-nums; }
 /* Zoomed in, a drag moves around the map instead of scrolling the page. */
 .map.zoomed { touch-action: none; cursor: grab; }
 .map.zoomed.panning { cursor: grabbing; }
@@ -132,20 +157,20 @@ input[type="range"] { width: 100%; accent-color: var(--ink); }
 .edit-tools { flex-wrap: wrap; row-gap: 6px; }
 .tool-group { display: flex; gap: 6px; padding-right: 8px; border-right: 1px solid var(--rule); }
 .tool-group:last-of-type { border-right: 0; }
-details.keys { flex-basis: 100%; font-size: 0.8rem; color: var(--faint); }
+details.keys { flex-basis: 100%; font-size: 0.8rem; color: var(--desk-faint); }
 details.keys summary { cursor: pointer; width: max-content; }
 details.keys p { margin: 4px 0 0; }
-.work { width: 100%; display: flex; gap: 14px; align-items: flex-start; justify-content: center; }
+.work { width: 100%; display: flex; gap: 14px; align-items: stretch; justify-content: center; }
 .work > .map-frame { flex: 1 1 auto; min-width: 0; }
-.palette { flex: 0 0 290px; max-height: calc(100vh - 150px); overflow-y: auto; }
+.palette { flex: 0 0 290px; align-self: flex-start; max-height: 100%; overflow-y: auto; color: var(--ink); }
 .palette .pal-grid { max-height: none; }
-@media (max-width: 1100px) { .work { flex-direction: column; align-items: stretch; } .palette { flex-basis: auto; max-height: 45vh; } }
+@media (max-width: 1100px) { .palette { flex-basis: 250px; } }
 .sel-bar { position: absolute; z-index: 3; display: flex; flex-wrap: wrap; gap: 4px; padding: 4px; max-width: calc(100% - 16px); background: rgba(255, 253, 248, 0.97); border: 1px solid var(--rule); border-radius: 7px; box-shadow: 0 2px 8px rgba(0,0,0,0.15); }
 .sel-bar[hidden] { display: none; }
 .sel-bar .plain { padding: 3px 8px; font-size: 0.78rem; }
 .plain.danger { border-color: #9b2c1c; color: #9b2c1c; }
 .map-status { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; overflow: hidden; }
-.status-hint { margin: 0; min-width: 0; font-size: 0.8rem; color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.status-hint { margin: 0; min-width: 0; font-size: 0.8rem; color: var(--desk-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .status-hint:empty { display: none; }
 .map-status .rename { min-width: 0; flex-wrap: nowrap; }
 .map-status .rename input { min-width: 5em; flex: 1 1 12em; padding: 3px 6px; }
@@ -161,9 +186,30 @@ details.keys p { margin: 4px 0 0; }
    the map's width but can never widen it (a long hint is cut short instead). */
 .map-bar { position: absolute; top: 0; left: 0; right: 0; height: 36px; display: flex; align-items: center; gap: 10px; }
 .map-column > .map-box { height: 100%; }
-@media (max-width: 760px) { .map-column { width: 100%; height: auto; } .map-column > .map-box { height: auto; } }
 .plain[aria-pressed="true"]:hover:not(:disabled) { background: #3a332c; }
 
-/* The Sea group in the settings panel. */
-.sea-options { border: 1px solid var(--rule); border-radius: 6px; padding: 8px 10px 10px; margin: 0; gap: 8px; }
-.sea-options legend { font-weight: 600; font-size: 0.9rem; padding: 0 4px; }
+
+/* The rename box over the desk. */
+.map-status .rename label { font-size: 0.8rem; color: var(--desk-ink); }
+
+/* Phones and narrow windows: the page stacks and scrolls, the map first. */
+@media (max-width: 760px) {
+  body.app { display: block; height: auto; overflow: visible; }
+  .top { position: sticky; top: 0; z-index: 5; gap: 6px; padding: 0 8px; }
+  .brand { font-size: 1.05rem; }
+  .top-actions { gap: 0; }
+  .top-btn { padding: 0 6px; font-size: 0.85rem; }
+  .top-nav { padding-left: 6px; font-size: 0.85rem; }
+  .layout { display: flex; flex-direction: column; }
+  .stage { order: -1; padding: 10px; }
+  .panel { overflow: visible; border-right: 0; }
+  .map-frame { height: auto; }
+  .map-box { height: auto; width: 100%; }
+  .map-column { width: 100%; height: auto; }
+  .map-column > .map-box { height: auto; }
+  .work { flex-direction: column; }
+  .palette { flex-basis: auto; max-height: 45vh; }
+  .pop { left: 10px; right: 10px; width: auto; }
+}
+/* The narrowest phones: the gallery is still reachable from Keep. */
+@media (max-width: 400px) { .top-nav { display: none; } }

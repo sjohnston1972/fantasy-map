@@ -10,78 +10,49 @@
   <link rel="stylesheet" href="app.css">
   <script type="module" src="app.js"></script>
 </head>
-<body>
+<body class="app">
   <header class="top">
+    <h1 class="brand" title="Hand-inked region maps, drawn fresh from a single number">Ink Fantasy Maps</h1>
+    <nav class="top-actions" aria-label="This map">
+      <button type="button" class="top-btn" popovertarget="share-pop">Share</button>
+      <button type="button" class="top-btn" popovertarget="keep-pop">Keep</button>
+      <button type="button" class="top-btn" popovertarget="export-pop">Download</button>
+    </nav>
     <nav class="top-nav" aria-label="Pages"><a href="/gallery/">Gallery</a></nav>
-    <h1>Ink Fantasy Maps</h1>
-    <p class="tag">Hand-inked region maps, drawn fresh from a single number.</p>
   </header>
 
   <div class="layout">
     <form id="settings" class="panel" aria-label="Map settings">
-      <label class="field">
-        <span>Seed</span>
-        <span class="seed-row">
-          <input id="seed" type="number" min="0" max="999999999" step="1" inputmode="numeric" required>
-        </span>
-        <small>Each map has a seed. Type one and press Enter to bring that map back.</small>
-      </label>
+      <div class="seed-block">
+        <label class="field">
+          <span>Seed</span>
+          <input id="seed" type="number" min="0" max="999999999" step="1" inputmode="numeric" required aria-describedby="seed-help">
+        </label>
+        <small id="seed-help">Type a map's seed and press Enter to bring it back.</small>
+        <button type="submit" class="generate">Generate a new map</button>
+      </div>
 
-      <label class="field">
-        <span>Shape</span>
-        <select id="shape">
-          <option value="portrait">Portrait (A-paper shape)</option>
-          <option value="landscape">Landscape (A-paper shape)</option>
-        </select>
-      </label>
+      <fieldset class="group">
+        <legend>Land</legend>
+        <label class="field">
+          <span>Sea level <output id="sea-out" for="sea"></output></span>
+          <input id="sea" type="range" min="5" max="90" step="1">
+        </label>
+        <label class="field">
+          <span>Mountains <output id="mountains-out" for="mountains"></output></span>
+          <input id="mountains" type="range" min="0" max="100" step="1">
+        </label>
+        <label class="field">
+          <span>Forests <output id="forest-out" for="forest"></output></span>
+          <input id="forest" type="range" min="0" max="100" step="1">
+        </label>
+        <label class="field">
+          <span>Towns <output id="towns-out" for="towns"></output></span>
+          <input id="towns" type="range" min="1" max="15" step="1">
+        </label>
+      </fieldset>
 
-      <label class="field">
-        <span>Border</span>
-        <select id="border">
-          <option value="classic">Classic double rule</option>
-          <option value="chequered">Chequered bands</option>
-          <option value="ornate">Ornate corners</option>
-          <option value="plain">Plain line</option>
-        </select>
-      </label>
-      <label class="field">
-        <span>Tone</span>
-        <select id="tone">
-          <option value="plain">Plain: black on white</option>
-          <option value="muted">Muted: soft ink on cream</option>
-          <option value="sepia">Sepia: brown ink on parchment</option>
-        </select>
-      </label>
-
-      <label class="field">
-        <span>Coast</span>
-        <select id="coast">
-          <option value="ripples">Ripple lines</option>
-          <option value="stipple">Double line and stippling</option>
-        </select>
-      </label>
-
-      <label class="field">
-        <span>Sea level <output id="sea-out" for="sea"></output></span>
-        <input id="sea" type="range" min="5" max="90" step="1">
-      </label>
-
-      <label class="field">
-        <span>Mountains <output id="mountains-out" for="mountains"></output></span>
-        <input id="mountains" type="range" min="0" max="100" step="1">
-      </label>
-
-      <label class="field">
-        <span>Forests <output id="forest-out" for="forest"></output></span>
-        <input id="forest" type="range" min="0" max="100" step="1">
-      </label>
-
-      <label class="field">
-        <span>Towns <output id="towns-out" for="towns"></output></span>
-        <input id="towns" type="range" min="1" max="15" step="1">
-      </label>
-
-      <fieldset class="field sea-options">
+      <fieldset class="group sea-options">
         <legend>Sea</legend>
         <label class="field">
           <span>Ships and sea life <output id="sea-life-out" for="sea-life"></output></span>
@@ -91,40 +62,75 @@
           <span>Wave marks <output id="waves-out" for="waves"></output></span>
           <input id="waves" type="range" min="0" max="100" step="5">
         </label>
-        <label class="check"><input id="compass-lines" type="checkbox"> Compass lines</label>
-        <label class="check"><input id="shallows" type="checkbox"> Shallows</label>
-        <label class="check"><input id="deltas" type="checkbox"> River deltas</label>
+        <div class="checks">
+          <label class="check"><input id="compass-lines" type="checkbox"> Compass lines</label>
+          <label class="check"><input id="shallows" type="checkbox"> Shallows</label>
+          <label class="check"><input id="deltas" type="checkbox"> River deltas</label>
+        </div>
       </fieldset>
 
-      <label class="check"><input id="show-relief" type="checkbox"> Show shaded relief</label>
-
-      <button type="submit" class="generate">Generate a new map</button>
-
-      <div class="exports" role="group" aria-labelledby="share-title">
-        <span id="share-title" class="group-title">Share this map</span>
-        <input id="share-link" type="text" readonly aria-label="Link to this map">
-        <button type="button" id="copy-link" class="plain">Copy link</button>
-        <output id="share-status" aria-live="polite"></output>
-        <small class="fine">The link rebuilds this map, with your edits.</small>
-      </div>
-
-      <div class="exports" role="group" aria-labelledby="keep-title">
-        <span id="keep-title" class="group-title">Keep this map</span>
-        <label class="field"><span>Name</span><input id="map-name" type="text" maxlength="60" autocomplete="off"></label>
-        <button type="button" id="save-mine" class="plain">Save to My maps</button>
-        <button type="button" id="publish" class="plain">Publish to the public gallery</button>
-        <output id="keep-status" aria-live="polite"></output>
-        <small class="fine">My maps stay in this browser. Publishing shares the map, its name and a small picture with everyone. <a href="/gallery/">Open the gallery</a></small>
-      </div>
-
-      <div class="exports" role="group" aria-labelledby="export-title">
-        <span id="export-title" class="group-title">Save the map</span>
-        <button type="button" id="export-svg" class="plain">SVG (any size)</button>
-        <button type="button" id="export-png" class="plain">PNG for screen</button>
-        <button type="button" id="export-a3" class="plain">PNG for A3 print (300 dpi)</button>
-        <output id="export-status" aria-live="polite"></output>
-      </div>
+      <fieldset class="group">
+        <legend>Style</legend>
+        <div class="pairs">
+          <label class="field">
+            <span>Shape</span>
+            <select id="shape">
+              <option value="portrait">Portrait</option>
+              <option value="landscape">Landscape</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>Border</span>
+            <select id="border">
+              <option value="classic">Classic</option>
+              <option value="chequered">Chequered</option>
+              <option value="ornate">Ornate</option>
+              <option value="plain">Plain line</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>Tone</span>
+            <select id="tone">
+              <option value="plain">Plain</option>
+              <option value="muted">Muted</option>
+              <option value="sepia">Sepia</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>Coast</span>
+            <select id="coast">
+              <option value="ripples">Ripples</option>
+              <option value="stipple">Stippled</option>
+            </select>
+          </label>
+        </div>
+        <label class="check"><input id="show-relief" type="checkbox"> Show shaded relief</label>
+      </fieldset>
     </form>
+
+    <!-- One-off actions, opened from the top bar. -->
+    <div id="share-pop" class="pop" popover role="group" aria-labelledby="share-title">
+      <h2 id="share-title" class="group-title">Share this map</h2>
+      <input id="share-link" type="text" readonly aria-label="Link to this map">
+      <button type="button" id="copy-link" class="plain">Copy link</button>
+      <output id="share-status" aria-live="polite"></output>
+      <small class="fine">The link rebuilds this map, with your edits.</small>
+    </div>
+    <div id="keep-pop" class="pop" popover role="group" aria-labelledby="keep-title">
+      <h2 id="keep-title" class="group-title">Keep this map</h2>
+      <label class="field"><span>Name</span><input id="map-name" type="text" maxlength="60" autocomplete="off"></label>
+      <button type="button" id="save-mine" class="plain">Save to My maps</button>
+      <button type="button" id="publish" class="plain">Publish to the public gallery</button>
+      <output id="keep-status" aria-live="polite"></output>
+      <small class="fine">My maps stay in this browser. Publishing shares the map, its name and a small picture with everyone. <a href="/gallery/">Open the gallery</a></small>
+    </div>
+    <div id="export-pop" class="pop" popover role="group" aria-labelledby="export-title">
+      <h2 id="export-title" class="group-title">Download the map</h2>
+      <button type="button" id="export-svg" class="plain">SVG (any size)</button>
+      <button type="button" id="export-png" class="plain">PNG for screen</button>
+      <button type="button" id="export-a3" class="plain">PNG for A3 print (300 dpi)</button>
+      <output id="export-status" aria-live="polite"></output>
+    </div>
 
     <figure class="stage">
       <!-- Tools that do not depend on what is picked. Its height never changes as items are

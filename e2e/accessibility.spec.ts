@@ -58,7 +58,9 @@ test.describe("accessibility", () => {
     expect(Object.keys((await state()).edits.added)).toHaveLength(1);
     await page.keyboard.press("Escape");
     await expect(page.locator("#map")).not.toHaveClass(/placing/);
-    // Save the SVG.
+    // Save the SVG, from the Download menu in the top bar.
+    await press('[popovertarget="export-pop"]');
+    await expect(page.locator("#export-svg")).toBeVisible();
     const [svg] = await Promise.all([page.waitForEvent("download"), press("#export-svg")]);
     expect(svg.suggestedFilename()).toBe("ink-map-12345.svg");
   });

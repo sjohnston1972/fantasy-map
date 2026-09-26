@@ -1,3 +1,10 @@
+/* The gallery is an ordinary scrolling page with a heading (the map page's app layout is
+   only for body.app in app.css). */
+body { padding: 16px clamp(16px, 3vw, 32px) 32px; font-size: 15px; line-height: 1.45; }
+.top { position: relative; }
+.top h1 { font-family: "IM Fell English SC", Georgia, serif; font-weight: 400; font-size: clamp(1.8rem, 5vw, 2.6rem); margin: 0; letter-spacing: 0.02em; }
+.tag { margin: 2px 0 16px; color: var(--faint); font-family: "IM Fell English", Georgia, serif; font-style: italic; font-size: 1.05rem; }
+.top-nav { position: absolute; right: 0; top: 6px; border-left: 0; padding-left: 0; }
 .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--rule); margin-bottom: 14px; }
 .tabs [role="tab"] { font: inherit; font-weight: 600; padding: 8px 14px; border: 1px solid transparent; border-bottom: 0; border-radius: 6px 6px 0 0; background: none; color: var(--faint); cursor: pointer; margin-bottom: -1px; }
 .tabs [role="tab"][aria-selected="true"] { background: var(--card); border-color: var(--rule); color: var(--ink); }

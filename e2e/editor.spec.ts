@@ -82,9 +82,9 @@ const picked = (page: Page) => page.locator("#map .selected").evaluateAll((els) 
 test.describe("everywhere", () => {
   test("draws the same map in every browser (share links rebuild it exactly)", async ({ page }) => {
     await open(page);
-    await expect(page.locator("#caption")).toContainText("Map check chb0e8");
+    await expect(page.locator("#caption")).toContainText("Map check pe41gf");
     await open(page, "/?map=1.acm9.p.35.50.60.5");
-    await expect(page.locator("#caption")).toContainText("Map check xdqnrc");
+    await expect(page.locator("#caption")).toContainText("Map check 46mhsd");
   });
 
   test("keeps the map its own shape whatever the hint says", async ({ page }) => {
@@ -114,6 +114,28 @@ test.describe("everywhere", () => {
     const mapBox = (await page.locator("#map-box").boundingBox())!;
     expect(mapBox.width).toBeGreaterThan(200);
   });
+});
+
+test.describe("one screen on a computer", () => {
+  test.skip(({ isMobile }) => !!isMobile, "desktop windows only");
+
+  for (const [width, height] of [[1366, 768], [1440, 900], [1920, 1080]]) {
+    test(`fits the settings and the map in a ${width} by ${height} window, editing or not`, async ({ page }) => {
+      await page.setViewportSize({ width, height });
+      await open(page);
+      const fits = () => page.evaluate(() => {
+        const d = document.documentElement;
+        const panel = document.querySelector("#settings")!;
+        return { page: d.scrollHeight <= innerHeight && d.scrollWidth <= innerWidth, panel: panel.scrollHeight <= panel.clientHeight };
+      });
+      expect(await fits()).toEqual({ page: true, panel: true });
+      const map = (await page.locator("#map-box").boundingBox())!;
+      expect(map.y + map.height).toBeLessThanOrEqual(height);
+      await editMode(page);
+      await page.locator("#add-open").click();
+      expect((await fits()).page).toBe(true);
+    });
+  }
 });
 
 test.describe("phone and tablet", () => {
@@ -476,6 +498,7 @@ test.describe("editing with a mouse", () => {
 
   test("saves SVG and PNG files", async ({ page }) => {
     await open(page);
+    await page.locator('[popovertarget="export-pop"]').click(); // the Download menu in the top bar
     const [svg] = await Promise.all([page.waitForEvent("download"), page.locator("#export-svg").click()]);
     expect(svg.suggestedFilename()).toBe("ink-map-482913.svg");
     const text = await (await svg.createReadStream()).toArray();
