@@ -4,6 +4,7 @@
 import { toInkSet, type InkSymbol } from "../gen/inkset";
 import type { Edits } from "../gen/edits";
 import { SEA_ROLES } from "../gen/sea";
+import { TONE_COLOURS } from "../gen/svg";
 import { els } from "./dom";
 import { paint } from "./main";
 import { makeSprites, SPRITE_MAX_ZOOM } from "./sprites";
@@ -65,7 +66,7 @@ export function buildSprites(): Promise<void> {
   building = building.then(async () => {
     if (!state.ink || !state.current) return;
     const before = state.sprites.size;
-    await makeSprites(state.ink, Object.keys(state.ink), state.current.settings.width, els.map.getBoundingClientRect().width, state.sprites);
+    await makeSprites(state.ink, Object.keys(state.ink), state.current.settings.width, els.map.getBoundingClientRect().width, state.sprites, TONE_COLOURS[state.spriteTone]);
     if (state.sprites.size > before && state.current) paint(state.current);
   }).catch((err) => console.warn("Could not make pictures of the drawings; using the line drawings.", err));
   return building;

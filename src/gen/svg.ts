@@ -9,7 +9,7 @@ import { WATER_LAKE, WATER_SEA, type Hydrology } from "./hydrology";
 import { pickSymbol, type InkSet, type InkSymbol } from "./inkset";
 import { compassBox, textWidth, titleFrame, type Emblem, type Label, type Labelling } from "./labels";
 import type { Bridge, Landmark, Settlement, Settlements } from "./settlements";
-import type { Border, Coast } from "./settings";
+import type { Border, Coast, Tone } from "./settings";
 import type { PlacedSymbol } from "./symbols";
 
 export interface SvgInput {
@@ -25,6 +25,21 @@ export interface SvgInput {
   coast?: Coast; // how the sea is drawn along the shore (ripples when left out)
   sprites?: Map<string, Sprite>; // pre-drawn pictures of drawings, for the map on screen only
   sea?: SeaStyle; // extra ways of drawing the sea (all off when left out)
+  tone?: Tone; // paper and ink colours (plain when left out)
+}
+
+// Paper and ink for each tone. The map is drawn in black ink (INK) on white (#fff) and
+// recoloured at the end (see toned), so every part follows, symbols' outlines included.
+export const TONE_COLOURS: Record<Tone, { paper: string; ink: string }> = {
+  plain: { paper: "#fff", ink: "#1a1714" },
+  muted: { paper: "#f4f0e6", ink: "#2d2925" },
+  sepia: { paper: "#ead8b4", ink: "#4a3120" },
+};
+
+function toned(svg: string, tone: Tone = "plain"): string {
+  if (tone === "plain") return svg;
+  const { paper, ink } = TONE_COLOURS[tone];
+  return svg.replace(/#fff\b/g, paper).replace(/#1a1714/g, ink);
 }
 
 // How the sea is drawn beyond its coast (drawing only; see MapSettings).
@@ -150,7 +165,7 @@ export function renderSvg(m: SvgInput): string {
   parts.push(`</svg>`);
   // Drawings used on this map, defined once and reused by reference.
   parts.splice(1, 0, defs.markup());
-  return parts.join("");
+  return toned(parts.join(""), m.tone);
 }
 
 const LABEL_STYLE = `font-family="'IM Fell English', Georgia, 'Times New Roman', serif" fill="${INK}" stroke="#fff" stroke-linejoin="round" paint-order="stroke"`;
@@ -369,7 +384,8 @@ export function renderItems(m: SvgInput, keys: Iterable<string>): { items: Map<s
     items.set(key, markup);
     if (path) paths.push([`rl${l.id}`, path]);
   }
-  return { items, defs: defs.entries(), paths };
+  const tone = (list: Iterable<[string, string]>) => [...list].map(([k, v]) => [k, toned(v, m.tone)] as [string, string]);
+  return { items: new Map(tone(items)), defs: tone(defs.entries()), paths: tone(paths) };
 }
 
 // The frame's styles, all drawn in the band between the outer and inner rules, so the map

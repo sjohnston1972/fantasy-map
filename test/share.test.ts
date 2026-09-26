@@ -82,6 +82,19 @@ describe("share links (spec: share link rebuilds the identical map in another br
   });
 });
 
+describe("tone in share links", () => {
+  it("carries the tone as a style letter, and reads older links as plain", () => {
+    const bare = { ...DEFAULT_SETTINGS, compass_lines: false, shallows: false, deltas: false, waves: 0, sea_life: 0 };
+    expect(encodeSettings({ ...bare, tone: "sepia" })).toBe("8.acm9.p.35.50.60.5.ce");
+    expect(encodeSettings({ ...bare, tone: "muted", border: "ornate" })).toBe("8.acm9.p.35.50.60.5.ou");
+    for (const tone of ["plain", "muted", "sepia"] as const) {
+      const s = { ...DEFAULT_SETTINGS, tone };
+      expect(decodeSettings(encodeSettings(s))?.settings).toEqual(s);
+    }
+    expect(decodeSettings("7.acm9.p.35.50.60.5.clhd.30.40")?.settings.tone).toBe("plain");
+  });
+});
+
 describe("edits in share links", () => {
   const map = generate(DEFAULT_SETTINGS);
 

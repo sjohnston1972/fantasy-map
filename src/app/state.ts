@@ -4,7 +4,7 @@
 import type { GeneratedMap } from "../gen/pipeline";
 import type { InkSet } from "../gen/inkset";
 import { NO_EDITS, type AddedSymbol, type EditedMap, type Edits } from "../gen/edits";
-import { DEFAULT_SETTINGS, type MapSettings } from "../gen/settings";
+import { DEFAULT_SETTINGS, type MapSettings, type Tone } from "../gen/settings";
 import type { Sprite } from "../gen/svg";
 import type { MapZoom } from "./zoom";
 
@@ -53,6 +53,7 @@ export const state = {
   // shown uses them. Saved files and thumbnails always use the line drawings.
   sprites: new Map<string, Sprite>(),
   spritesShown: false,
+  spriteTone: "plain" as Tone, // the tone the pictures were made in
   // Zoom and pan (src/app/zoom.ts), set up by main.ts when the page starts.
   zoom: undefined as unknown as MapZoom,
 };

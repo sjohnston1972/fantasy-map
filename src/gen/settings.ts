@@ -24,6 +24,10 @@ export type Border = (typeof BORDERS)[number];
 export const COASTS = ["ripples", "stipple"] as const;
 export type Coast = (typeof COASTS)[number];
 
+// The colours of paper and ink. Drawing only, like the border.
+export const TONES = ["plain", "muted", "sepia"] as const;
+export type Tone = (typeof TONES)[number];
+
 export interface MapSettings {
   v: number;
   scale: "region";
@@ -42,6 +46,7 @@ export interface MapSettings {
   compass_lines: boolean; // lines radiating across the sea, as on old sea charts
   shallows: boolean; // a dotted depth line and light stippling over shallow water
   deltas: boolean; // channels fanning out where rivers meet the sea
+  tone: Tone; // paper and ink colours (drawing only)
 }
 
 export const DEFAULT_SETTINGS: MapSettings = {
@@ -61,6 +66,7 @@ export const DEFAULT_SETTINGS: MapSettings = {
   compass_lines: true,
   shallows: true,
   deltas: true,
+  tone: "plain",
 };
 
 export const LIMITS = {
@@ -95,5 +101,6 @@ export function cleanSettings(s: Partial<MapSettings>): MapSettings {
     compass_lines: typeof s.compass_lines === "boolean" ? s.compass_lines : d.compass_lines,
     shallows: typeof s.shallows === "boolean" ? s.shallows : d.shallows,
     deltas: typeof s.deltas === "boolean" ? s.deltas : d.deltas,
+    tone: TONES.includes(s.tone as Tone) ? (s.tone as Tone) : d.tone,
   };
 }

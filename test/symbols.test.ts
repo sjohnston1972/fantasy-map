@@ -6,7 +6,7 @@ import { generate } from "../src/gen/pipeline";
 import { DEFAULT_SETTINGS } from "../src/gen/settings";
 import { MAX_MOUNTAIN_OVERLAP, MAX_OVERLAP, MAX_TREE_OVERLAP, overlapLimit, overlapShare, type PlacedSymbol } from "../src/gen/symbols";
 import { toInkSet } from "../src/gen/inkset";
-import { renderSvg } from "../src/gen/svg";
+import { renderItems, renderSvg, TONE_COLOURS } from "../src/gen/svg";
 import { SEA_ROLES } from "../src/gen/sea";
 
 const SEEDS = [482913, 77, 2024, 5, 31337];
@@ -262,4 +262,31 @@ describe("SVG render with ink symbols", () => {
     expect(svg).toContain('data-role="reeds"');
     expect(svg).not.toMatch(/NaN|undefined/);
   });
+});
+
+describe("map tones (paper and ink colours)", () => {
+  const m = maps[0];
+  const ink = toInkSet([{ role: "mountain", symbols: [{ id: "m1", w: 40, h: 30, anchorX: 0.5, anchorY: 1, facing: "none", viewBox: "0 0 40 30", body: '<path fill="currentColor" d="M0 0h40v30z"/>' }] }]);
+  const input = { width: m.settings.width, height: m.settings.height, water: m.water, symbols: m.symbols, towns: m.towns, labels: m.labels, ink, sea: { waves: 0.5, compassLines: true, shallows: true, deltas: true } };
+
+  it("draws plain maps in black ink on white, as before", () => {
+    expect(renderSvg({ ...input, tone: "plain" })).toBe(renderSvg(input));
+  });
+
+  for (const tone of ["muted", "sepia"] as const) {
+    it(`leaves no pure white or black ink in a ${tone} map, outlines and lettering included`, () => {
+      const svg = renderSvg({ ...input, tone });
+      expect(svg).not.toMatch(/#fff\b/);
+      expect(svg).not.toContain("#1a1714");
+      expect(svg).toContain(TONE_COLOURS[tone].paper);
+      expect(svg).toContain(TONE_COLOURS[tone].ink);
+    });
+
+    it(`recolours items redrawn in place in a ${tone} map`, () => {
+      const keys = ["sym:0", "town:0", "label:0"];
+      const { items } = renderItems({ ...input, tone }, keys);
+      expect(items.size).toBeGreaterThan(0);
+      for (const markup of items.values()) expect(markup).not.toMatch(/#fff\b|#1a1714/);
+    });
+  }
 });

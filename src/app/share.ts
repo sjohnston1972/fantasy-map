@@ -12,18 +12,19 @@
 //   generator version (the settings' v field)
 //
 // An eighth field gives the drawing style: the border (c classic, k chequered, o ornate,
-// p plain) followed by any of s (stippled coast), l (compass lines), h (shallows) and
-// d (river deltas): "k", "cs", "clhd". A ninth and tenth give the wave marks and the sea
+// p plain) followed by any of s (stippled coast), l (compass lines), h (shallows),
+// d (river deltas) and the tone, u (muted) or e (sepia): "k", "cs", "clhd", "clhde". A ninth and tenth give the wave marks and the sea
 // life in per cent. Fields left off mean the plainest setting (classic border, ripples,
-// none of the extras), which is how every link from before they existed reads.
+// none of the extras, plain tone), which is how every link from before they existed reads.
 //
 // The sliders work in whole per cents, so the per cent values round-trip exactly and the
 // map rebuilt from a code is the same map.
 
 import { MAX_SCALE, MIN_SCALE, NO_EDITS, type Edits } from "../gen/edits";
-import { cleanSettings, type Border, type MapSettings } from "../gen/settings";
+import { cleanSettings, type Border, type MapSettings, type Tone } from "../gen/settings";
 
 const BORDER_CODES: Record<Border, string> = { classic: "c", chequered: "k", ornate: "o", plain: "p" };
+const TONE_CODES: Partial<Record<Tone, string>> = { muted: "u", sepia: "e" };
 
 const SHAPES: Record<string, [number, number]> = { p: [1600, 2263], l: [2263, 1600] };
 const pct = (x: number) => Math.round(x * 100);
@@ -31,7 +32,7 @@ const pct = (x: number) => Math.round(x * 100);
 export function encodeSettings(s: MapSettings): string {
   const shape = Object.keys(SHAPES).find((k) => SHAPES[k][0] === s.width && SHAPES[k][1] === s.height) ?? `${s.width}x${s.height}`;
   const fields = [s.v, s.seed.toString(36), shape, pct(s.sea_level), pct(s.mountain_density), pct(s.forest_density), s.town_count];
-  const flags = (s.coast === "stipple" ? "s" : "") + (s.compass_lines ? "l" : "") + (s.shallows ? "h" : "") + (s.deltas ? "d" : "");
+  const flags = (s.coast === "stipple" ? "s" : "") + (s.compass_lines ? "l" : "") + (s.shallows ? "h" : "") + (s.deltas ? "d" : "") + (TONE_CODES[s.tone] ?? "");
   const amounts = s.waves > 0 || s.sea_life > 0;
   if (s.border !== "classic" || flags || amounts) fields.push(BORDER_CODES[s.border] + flags);
   if (amounts) fields.push(pct(s.waves), pct(s.sea_life));
@@ -65,6 +66,7 @@ export function decodeSettings(code: string): { settings: MapSettings; version: 
     compass_lines: flags.includes("l"),
     shallows: flags.includes("h"),
     deltas: flags.includes("d"),
+    tone: (Object.keys(TONE_CODES) as Tone[]).find((t) => flags.includes(TONE_CODES[t]!)) ?? "plain",
     waves: waves ? Number(waves) / 100 : 0,
     sea_life: seaLife ? Number(seaLife) / 100 : 0,
   });

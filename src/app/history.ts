@@ -38,7 +38,7 @@ export function patchItems(keys: Set<string>): boolean {
   if (keys.size === 0) return true;
   if (keys.size > 1500) return false;
   const { width, height } = state.current.settings;
-  const input = { width, height, water: state.edited.water, symbols: state.edited.symbols, towns: state.edited.towns, labels: state.edited.labels, ink: state.ink, sprites: state.spritesShown ? state.sprites : undefined };
+  const input = { width, height, water: state.edited.water, symbols: state.edited.symbols, towns: state.edited.towns, labels: state.edited.labels, ink: state.ink, tone: state.current.settings.tone, sprites: state.spritesShown ? state.sprites : undefined };
   const { items, defs, paths } = renderItems(input, keys);
   const parse = (markup: string) => {
     const g = document.createElementNS(SVG_NS, "g");

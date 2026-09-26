@@ -22,8 +22,8 @@ import { applyEdits, NO_EDITS, type EditedMap } from "../gen/edits";
 import type { GeneratedMap } from "../gen/pipeline";
 import { renderRelief } from "../gen/render";
 import { randomSeed } from "../gen/rng";
-import { cleanSettings, DEFAULT_SETTINGS, GENERATOR_VERSION, type Border, type Coast, type MapSettings } from "../gen/settings";
-import { frameFor, renderSvg, type SeaStyle } from "../gen/svg";
+import { cleanSettings, DEFAULT_SETTINGS, GENERATOR_VERSION, type Border, type Coast, type MapSettings, type Tone } from "../gen/settings";
+import { frameFor, renderSvg, TONE_COLOURS, type SeaStyle } from "../gen/svg";
 import { initActions } from "./actions";
 import { initClipboard } from "./clipboard";
 import { els } from "./dom";
@@ -99,11 +99,13 @@ els.shape.addEventListener("change", () => (readForm(), draw()));
 // The border and coast styles change only the drawing, so the map is redrawn, not generated
 // again (and its edits and generator version stay as they are).
 // So do the wave marks, compass lines, shallows and deltas.
-for (const control of [els.border, els.coast, els.waves, els.compassLines, els.shallows, els.deltas])
+// So does the tone.
+for (const control of [els.border, els.tone, els.coast, els.waves, els.compassLines, els.shallows, els.deltas])
   control.addEventListener("change", () => {
     state.settings = cleanSettings({
       ...state.settings,
       border: els.border.value as Border,
+      tone: els.tone.value as Tone,
       coast: els.coast.value as Coast,
       waves: Number(els.waves.value) / 100,
       compass_lines: els.compassLines.checked,
@@ -121,7 +123,7 @@ els.showRelief.addEventListener("change", () => state.current && paintRelief(sta
 
 // The settings that change only how the map is drawn, not the map itself.
 function drawingStyle(s: MapSettings) {
-  return { border: s.border, coast: s.coast, waves: s.waves, compass_lines: s.compass_lines, shallows: s.shallows, deltas: s.deltas };
+  return { border: s.border, tone: s.tone, coast: s.coast, waves: s.waves, compass_lines: s.compass_lines, shallows: s.shallows, deltas: s.deltas };
 }
 
 function readForm() {
@@ -146,6 +148,7 @@ function syncForm() {
   els.seed.value = String(state.settings.seed);
   els.shape.value = Object.keys(SHAPES).find((k) => SHAPES[k][0] === state.settings.width && SHAPES[k][1] === state.settings.height) ?? "portrait";
   els.border.value = state.settings.border;
+  els.tone.value = state.settings.tone;
   els.coast.value = state.settings.coast;
   els.sea.value = String(Math.round(state.settings.sea_level * 100));
   els.seaOut.value = `${els.sea.value}% water`;
@@ -206,7 +209,7 @@ function draw() {
 
 export function svgFor(map: EditedMap, fontCss?: string, onScreen = false): string {
   const { width, height } = map.settings;
-  return renderSvg({ width, height, water: map.water, symbols: map.symbols, towns: map.towns, labels: map.labels, ink: state.ink, fontCss, border: map.settings.border, coast: map.settings.coast, sea: seaStyle(map.settings), sprites: onScreen && spritesWanted() ? state.sprites : undefined });
+  return renderSvg({ width, height, water: map.water, symbols: map.symbols, towns: map.towns, labels: map.labels, ink: state.ink, fontCss, border: map.settings.border, coast: map.settings.coast, tone: map.settings.tone, sea: seaStyle(map.settings), sprites: onScreen && spritesWanted() ? state.sprites : undefined });
 }
 
 // The sea's drawing options. Compass lines radiate from where the compass rose was first
@@ -224,6 +227,15 @@ export function paint(map: GeneratedMap) {
   state.hitList = null;
   const { width, height } = map.settings;
   els.mapBox.style.aspectRatio = `${width} / ${height}`;
+  els.mapBox.style.background = TONE_COLOURS[map.settings.tone].paper;
+  // Pictures of the drawings are made in the map's colours; make them again for a new tone.
+  if (state.spriteTone !== map.settings.tone) {
+    // A new set, so pictures still being made in the old colours go to the old one.
+    for (const s of state.sprites.values()) URL.revokeObjectURL(s.href);
+    state.sprites = new Map();
+    state.spriteTone = map.settings.tone;
+    void buildSprites();
+  }
   state.spritesShown = spritesWanted();
   els.map.innerHTML = svgFor(state.edited, undefined, true);
   const svg = els.map.querySelector("svg")!;

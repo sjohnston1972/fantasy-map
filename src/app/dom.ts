@@ -6,6 +6,7 @@ export const els = {
   seed: $<HTMLInputElement>("#seed"),
   shape: $<HTMLSelectElement>("#shape"),
   border: $<HTMLSelectElement>("#border"),
+  tone: $<HTMLSelectElement>("#tone"),
   coast: $<HTMLSelectElement>("#coast"),
   seaLife: $<HTMLInputElement>("#sea-life"),
   seaLifeOut: $<HTMLOutputElement>("#sea-life-out"),
