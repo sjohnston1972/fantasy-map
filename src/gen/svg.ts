@@ -4,6 +4,7 @@
 // shapes until the real ink symbol packs arrive (milestone 7).
 
 import { outlines, simplify, smoothLoop, type Pt } from "./contours";
+import { bezier, deltaPlan, type Delta } from "./deltas";
 import { WATER_LAKE, WATER_SEA, type Hydrology } from "./hydrology";
 import { pickSymbol, type InkSet, type InkSymbol } from "./inkset";
 import { compassBox, textWidth, titleFrame, type Emblem, type Label, type Labelling } from "./labels";
@@ -424,7 +425,10 @@ function frameMarkup(fr: Frame, border: Border, px: number): string {
 }
 
 // Sea ripples, land, lakes, rivers and roads.
-function renderBase(W: number, H: number, hy: Hydrology, towns?: Settlements, coast: Coast = "ripples", sea?: SeaStyle): string {
+function renderBase(W: number, H: number, generated: Hydrology, towns?: Settlements, coast: Coast = "ripples", sea?: SeaStyle): string {
+  // With deltas on, the sea is drawn around the delta land (see deltas.ts).
+  const plan = sea?.deltas ? deltaPlan(generated, towns?.places, W) : null;
+  const hy = plan ? { ...generated, water: plan.water } : generated;
   const sx = W / hy.cols;
   const sy = H / hy.rows;
   const px = W / 1600;
@@ -495,7 +499,7 @@ function renderBase(W: number, H: number, hy: Hydrology, towns?: Settlements, co
     parts.push(`<path d="${ribbon(pts, widths)}"/>`);
   }
   parts.push(`</g>`);
-  if (sea?.deltas) parts.push(deltas(hy, sx, sy, px));
+  if (plan) parts.push(deltaMarks(hy, plan.deltas, sx, sy, px, minFlow));
 
   // Roads: dashed lines.
   if (towns) {
@@ -770,28 +774,35 @@ function waveMarks(hy: Hydrology, sx: number, sy: number, px: number, dist: Floa
   return d.length ? `<path data-waves="${layer}" d="${d.join("")}" fill="${INK}" stroke="${INK}" stroke-width="${(0.25 * px).toFixed(2)}" stroke-linejoin="round"/>` : "";
 }
 
-// River deltas: where one of the larger rivers meets the sea, three channels fan out into
-// the water (small streams get none, or the coast bristles with them).
-function deltas(hy: Hydrology, sx: number, sy: number, px: number): string {
-  const d: string[] = [];
-  const mouths = hy.rivers.filter((r) => r.end === "sea" && r.cells.length >= 4);
-  const flows = mouths.map((r) => r.flow[r.flow.length - 1]).sort((a, b) => b - a);
-  const big = flows[Math.min(flows.length - 1, 5)] ?? Infinity; // the six largest
-  for (const r of mouths) {
-    if (r.flow[r.flow.length - 1] < big) continue;
-    const at = (i: number) => [((i % hy.cols) + 0.5) * sx, (Math.floor(i / hy.cols) + 0.5) * sy];
-    const [x1, y1] = at(r.cells[r.cells.length - 1]);
-    const [x0, y0] = at(r.cells[Math.max(0, r.cells.length - 4)]);
-    const a = Math.atan2(y1 - y0, x1 - x0);
-    const len = (10 + Math.min(8, r.flow[r.flow.length - 1] / 60)) * px;
-    for (const turn of [-0.4, 0, 0.4]) {
-      const b = a + turn;
-      const mx = x1 + Math.cos(a + turn / 2) * len * 0.5;
-      const my = y1 + Math.sin(a + turn / 2) * len * 0.5;
-      d.push(`M${x1.toFixed(1)} ${y1.toFixed(1)}Q${mx.toFixed(1)} ${my.toFixed(1)} ${(x1 + Math.cos(b) * len).toFixed(1)} ${(y1 + Math.sin(b) * len).toFixed(1)}`);
+// River deltas (planned in deltas.ts): channels tapering from the river's width to hairlines
+// at the new shore, bent like the rivers, and a few tufts of reeds on the low delta land.
+function deltaMarks(hy: Hydrology, deltas: Delta[], sx: number, sy: number, px: number, minFlow: number): string {
+  const channels: string[] = [];
+  const reeds: string[] = [];
+  const n = (v: number) => v.toFixed(1);
+  for (const d of deltas) {
+    const f = d.river.flow[d.split];
+    const riverWidth = Math.min(2.6, 0.6 + 0.3 * Math.log2(Math.max(1, f / minFlow))) * px;
+    for (const ch of d.channels) {
+      const steps = 16;
+      const grid = Array.from({ length: steps + 1 }, (_, k) => bezier(ch.from, ch.via, ch.to, k / steps));
+      const pts = waver(bend(grid.map(([x, y]) => [x * sx, y * sy] as Pt), px), false, 1.6 * px);
+      const w0 = Math.max(1.1 * px, riverWidth * (ch.branch ? 0.75 : 1));
+      const w1 = 0.5 * px;
+      // Full width for most of the way, thinning towards the shore.
+      channels.push(`<path d="${ribbon(pts, pts.map((_, k) => w0 + (w1 - w0) * (k / (pts.length - 1)) ** 1.8))}"/>`);
+    }
+    for (const i of d.land) {
+      if (hash01(i * 41 + 9) > 0.3) continue;
+      const [x, y] = bendAt(((i % hy.cols) + hash01(i * 43 + 1)) * sx, (Math.floor(i / hy.cols) + hash01(i * 47 + 2)) * sy, px);
+      const h = (1.8 + hash01(i * 53 + 3)) * px;
+      reeds.push(`M${n(x - 0.9 * px)} ${n(y)}L${n(x - 1.3 * px)} ${n(y - h * 0.7)}M${n(x)} ${n(y)}V${n(y - h)}M${n(x + 0.9 * px)} ${n(y)}L${n(x + 1.3 * px)} ${n(y - h * 0.7)}`);
     }
   }
-  return d.length ? `<path d="${d.join("")}" fill="none" stroke="${INK}" stroke-width="${(0.8 * px).toFixed(2)}" stroke-linecap="round"/>` : "";
+  return (
+    (channels.length ? `<g fill="${INK}" data-deltas="">${channels.join("")}</g>` : "") +
+    (reeds.length ? `<path d="${reeds.join("")}" fill="none" stroke="${INK}" stroke-width="${(0.5 * px).toFixed(2)}" stroke-linecap="round"/>` : "")
+  );
 }
 
 // Stippled dots in water near a shore: thick at the shore, thinning out to `reach` cells away.

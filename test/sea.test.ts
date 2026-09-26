@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { WATER_LAKE, WATER_SEA } from "../src/gen/hydrology";
+import { deltaPlan } from "../src/gen/deltas";
 import { generate } from "../src/gen/pipeline";
 import { SEA_ROLES } from "../src/gen/sea";
 import { overlapShare } from "../src/gen/symbols";
@@ -107,5 +108,47 @@ describe("drawing the sea", () => {
       expect(Number(y)).toBeLessThanOrEqual(m.settings.height + 0.1);
     }
     expect(checked).toBeGreaterThan(20);
+  });
+});
+
+describe("river deltas (drawing only)", () => {
+  it("builds fans of land out of sea at the larger mouths, and channels that end at the new shore", () => {
+    for (const m of maps) {
+      const hy = m.water;
+      const { water, deltas } = deltaPlan(hy, m.towns.places, m.settings.width);
+      expect(deltas.length, `seed ${m.settings.seed}`).toBeGreaterThan(0);
+      expect(deltas.length).toBeLessThanOrEqual(6);
+      for (const d of deltas) {
+        expect(d.channels.length).toBeGreaterThanOrEqual(2);
+        for (const i of d.land) {
+          expect(hy.water[i]).toBe(WATER_SEA); // only sea becomes delta land
+          expect(water[i]).toBe(0);
+        }
+        for (const ch of d.channels) {
+          // The end is on the shore: land and sea both within a cell and a half.
+          const [x, y] = ch.to;
+          let land = false;
+          let sea = false;
+          for (let dy = -1.5; dy <= 1.5; dy += 0.5)
+            for (let dx = -1.5; dx <= 1.5; dx += 0.5) {
+              const w = water[Math.floor(y + dy) * hy.cols + Math.floor(x + dx)];
+              if (w === WATER_SEA) sea = true;
+              else land = true;
+            }
+          expect(land && sea, `seed ${m.settings.seed} channel end ${x},${y}`).toBe(true);
+        }
+      }
+      // The generated map itself is untouched.
+      expect(water).not.toBe(hy.water);
+    }
+  });
+
+  it("leaves a river that reaches the sea at a town without a delta", () => {
+    const m = maps[0];
+    const all = deltaPlan(m.water, [], m.settings.width).deltas;
+    const mouth = all[0].river.cells[all[0].river.cells.length - 1];
+    const town = { x: ((mouth % m.water.cols) + 0.5) * (m.settings.width / m.water.cols), y: (Math.floor(mouth / m.water.cols) + 0.5) * (m.settings.width / m.water.cols) };
+    const near = deltaPlan(m.water, [town], m.settings.width).deltas;
+    expect(near.map((d) => d.river)).not.toContain(all[0].river);
   });
 });
