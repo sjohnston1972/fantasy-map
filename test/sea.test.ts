@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { WATER_SEA } from "../src/gen/hydrology";
+import { WATER_LAKE, WATER_SEA } from "../src/gen/hydrology";
 import { generate } from "../src/gen/pipeline";
 import { SEA_ROLES } from "../src/gen/sea";
 import { overlapShare } from "../src/gen/symbols";
@@ -73,6 +73,26 @@ describe("drawing the sea", () => {
       expect(draw({ ...none, ...option }).length, JSON.stringify(option)).toBeGreaterThan(base);
     }
     expect(draw({ ...none, waves: 1 }).length).toBeGreaterThan(draw({ ...none, waves: 0.2 }).length);
+  });
+
+  it("draws wave marks on larger lakes as well as the sea, and none with waves off", () => {
+    const withLakes = maps.filter((mm) => mm.water.water.some((w) => w === WATER_LAKE));
+    expect(withLakes.length).toBeGreaterThan(0);
+    const svg = draw({ ...none, waves: 1 });
+    expect(svg).toContain('data-waves="sea"');
+    expect(svg).toContain('data-waves="lake"');
+    expect(draw({ ...none, waves: 0 })).not.toContain("data-waves");
+  });
+
+  it("varies the wave marks, so neighbours are not copies of one glyph", () => {
+    const d = draw({ ...none, waves: 1 }).match(/data-waves="sea" d="([^"]+)"/)![1];
+    // Each swell's shape relative to its own start point.
+    const shapes = d.split("M").filter(Boolean).map((part) => {
+      const nums = part.match(/-?[\d.]+/g)!.map(Number);
+      return nums.map((v, k) => (v - nums[k % 2]).toFixed(1)).join(",");
+    });
+    expect(shapes.length).toBeGreaterThan(50);
+    expect(new Set(shapes).size).toBeGreaterThan(shapes.length * 0.5);
   });
 
   it("keeps compass lines inside the map", () => {

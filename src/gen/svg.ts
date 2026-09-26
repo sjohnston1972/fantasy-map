@@ -28,8 +28,8 @@ export interface SvgInput {
 
 // How the sea is drawn beyond its coast (drawing only; see MapSettings).
 export interface SeaStyle {
-  waves: number; // 0 to 1: how thick the wave marks in open sea are
-  compassLines: boolean; // lines radiating across the sea from wind roses
+  waves: number; // 0 to 1: how thick the wave marks are on open sea and larger lakes
+  compassLines: boolean; // lines radiating across the sea from the compass rose
   shallows: boolean; // a dotted depth line and light stippling over shallow water
   deltas: boolean; // channels fanning out where rivers meet the sea
   roses?: [number, number][]; // where the compass lines radiate from (the compass rose first)
@@ -434,7 +434,7 @@ function renderBase(W: number, H: number, hy: Hydrology, towns?: Settlements, co
   // Sea features drawn before the land, whose white fill then covers anything straying onto it.
   if (sea?.compassLines) parts.push(compassLines(W, H, px, sea.roses ?? []));
   if (sea?.shallows) parts.push(shallows(hy, sx, sy, px, toMap));
-  if (sea && sea.waves > 0) parts.push(waveMarks(hy, sx, sy, px, seaDist, sea.waves));
+  if (sea && sea.waves > 0) parts.push(waveMarks(hy, sx, sy, px, seaDist, (i) => hy.water[i] === WATER_SEA, 6, sea.waves, "sea"));
   if (coast === "stipple") {
     // A second, fine shore line just offshore, and stippled dots fading out to sea.
     const offshore = outlines(hy.cols, hy.rows, (i) => hy.water[i] !== WATER_SEA || seaDist[i] <= 1).map((l) => toMap(smoothLoop(l, 3)));
@@ -463,6 +463,8 @@ function renderBase(W: number, H: number, hy: Hydrology, towns?: Settlements, co
       const inner = outlines(hy.cols, hy.rows, (i) => hy.water[i] === WATER_LAKE && lakeDist[i] > 2).map((l) => toMap(smoothLoop(l, 3)));
       if (inner.length) parts.push(`<path d="${pathOf(inner)}" fill="none" stroke="${INK}" stroke-width="0.6" stroke-opacity="0.8"/>`);
     }
+    // Wave marks on the open water of larger lakes, clear of the shore and its ripple.
+    if (sea && sea.waves > 0) parts.push(waveMarks(hy, sx, sy, px, lakeDist, (i) => hy.water[i] === WATER_LAKE, 5, sea.waves, "lake", 0.75));
   }
 
   // Rivers: filled ribbons, hairline at the source and widening with the water carried.
@@ -690,20 +692,65 @@ function shallows(hy: Hydrology, sx: number, sy: number, px: number, toMap: (loo
   return line + dots;
 }
 
-// Wave marks: small curls of line scattered through open sea, away from the coast.
-function waveMarks(hy: Hydrology, sx: number, sy: number, px: number, seaDist: Float32Array, amount: number): string {
+// Wave marks, as on engraved maps: two or three long, low swells stacked one under another,
+// each a filled sliver that thickens in the middle and tapers to fine points, the top one
+// curling over at its leading end. Size, tilt, facing and count vary from mark to mark, and
+// marks keep a little apart, so no two neighbours look alike and none reads as a typed "~".
+// Placed on water cells matching `where` at least `reach` cells from the shore; `size`
+// scales the marks (lakes get smaller ones).
+function waveMarks(hy: Hydrology, sx: number, sy: number, px: number, dist: Float32Array, where: (i: number) => boolean, reach: number, amount: number, layer: string, size = 1): string {
   const d: string[] = [];
-  const s = 3.2 * px;
+  const n = (v: number) => v.toFixed(1);
+  const gap = 16 * px * size; // closest two marks may sit
+  const taken = new Map<string, Pt[]>();
+  const clear = (x: number, y: number) => {
+    const gx = Math.floor(x / gap);
+    const gy = Math.floor(y / gap);
+    for (let a = -1; a <= 1; a++)
+      for (let b = -1; b <= 1; b++) for (const [ox, oy] of taken.get(`${gx + a},${gy + b}`) ?? []) if (Math.hypot(ox - x, oy - y) < gap) return false;
+    const key = `${gx},${gy}`;
+    taken.set(key, [...(taken.get(key) ?? []), [x, y]]);
+    return true;
+  };
   for (let i = 0; i < hy.water.length; i++) {
-    if (hy.water[i] !== WATER_SEA || seaDist[i] < 6) continue;
+    if (!where(i) || dist[i] < reach) continue;
     if (hash01(i * 31 + 7) >= amount * 0.02) continue;
     const c = i % hy.cols;
     const r = (i - c) / hy.cols;
     const x = (c + hash01(i * 3 + 1)) * sx;
     const y = (r + hash01(i * 5 + 2)) * sy;
-    d.push(`M${x.toFixed(1)} ${y.toFixed(1)}q${(s * 0.8).toFixed(1)} ${(-s).toFixed(1)} ${(s * 1.6).toFixed(1)} 0t${(s * 1.6).toFixed(1)} 0`);
+    if (!clear(x, y)) continue;
+    const k = (0.8 + 0.45 * hash01(i * 7 + 3)) * size;
+    const w = 12 * px * k; // the top swell's length
+    const h = 2 * px * k; // its rise
+    const t = 0.9 * px * k; // its thickness in the middle
+    const tilt = (hash01(i * 13 + 5) - 0.5) * 0.25;
+    const cos = Math.cos(tilt);
+    const sin = Math.sin(tilt);
+    const at = (u: number, v: number) => `${n(x + u * cos - v * sin)} ${n(y + u * sin + v * cos)}`;
+    // Two or three long, low swells stacked one under another, each shorter and shifted
+    // along a little, the top one breaking into a small curl at its leading end.
+    const dir = hash01(i * 11 + 4) < 0.5 ? -1 : 1;
+    const count = 2 + (hash01(i * 17 + 6) < 0.45 ? 1 : 0);
+    for (let j = 0; j < count; j++) {
+      const len = w * (1 - 0.22 * j) * (0.9 + 0.2 * hash01(i * 19 + j));
+      const cx = dir * (j * 0.18 * w + (hash01(i * 23 + j) - 0.5) * 0.12 * w);
+      const cy = j * 2.3 * h;
+      const hh = h * (1 - 0.15 * j);
+      const tt = t * (1 - 0.2 * j);
+      const l = cx - len / 2;
+      const r = cx + len / 2;
+      const peak = cx + dir * 0.12 * len; // crest a little towards the leading end
+      d.push(`M${at(l, cy)}Q${at(peak, cy - 2 * hh)} ${at(r, cy)}Q${at(peak, cy - 2 * (hh - tt))} ${at(l, cy)}Z`);
+      if (j === 0) {
+        // The curl: from just behind the leading end, a small hook turning back and down.
+        const e = dir > 0 ? r : l;
+        const ey = cy;
+        d.push(`M${at(e - dir * 0.1 * len, ey - 0.75 * hh)}Q${at(e + dir * 0.12 * len, ey - 1.1 * hh)} ${at(e + dir * 0.06 * len, ey + 0.2 * hh)}Q${at(e + dir * 0.06 * len, ey - 0.6 * hh)} ${at(e - dir * 0.1 * len, ey - 0.75 * hh)}Z`);
+      }
+    }
   }
-  return d.length ? `<path d="${d.join("")}" fill="none" stroke="${INK}" stroke-width="${(0.8 * px).toFixed(2)}" stroke-linecap="round"/>` : "";
+  return d.length ? `<path data-waves="${layer}" d="${d.join("")}" fill="${INK}" stroke="${INK}" stroke-width="${(0.25 * px).toFixed(2)}" stroke-linejoin="round"/>` : "";
 }
 
 // River deltas: where one of the larger rivers meets the sea, three channels fan out into
