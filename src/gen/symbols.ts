@@ -100,13 +100,13 @@ export function placeSymbols(hy: Hydrology, cl: Climate, s: MapSettings, blocked
           spacing: 22,
           size: [30, 52],
           aspect: 0.5,
-          where: (i) => (b[i] !== BIOME.mountain && e[i] > 0.3 ? Math.min(0.85, 0.45 + (e[i] - 0.3) * 1.5) : 0),
+          where: (i) => (b[i] !== BIOME.mountain && e[i] > cl.hillAt ? Math.min(0.85, 0.45 + (e[i] - cl.hillAt) * 1.5) : 0),
           sizeAt: (i, t) => {
-            const high = Math.min(1, Math.max(0, (e[i] - 0.3) / 0.3));
+            const high = Math.min(1, Math.max(0, (e[i] - cl.hillAt) / 0.3));
             return 30 + (52 - 30) * (0.6 * high + 0.4 * t);
           },
         }
-      : { role: "hill", spacing: 34, size: [32, 46], aspect: 0.5, where: (i) => (b[i] !== BIOME.mountain && e[i] > 0.3 ? 0.5 : 0) },
+      : { role: "hill", spacing: 34, size: [32, 46], aspect: 0.5, where: (i) => (b[i] !== BIOME.mountain && e[i] > cl.hillAt ? 0.5 : 0) },
     // Version 2 trees are drawn larger than the gap between them, so they overlap.
     v2
       ? { role: "conifer", spacing: 10.5, size: [16, 21], aspect: 1.6, where: (i) => (b[i] === BIOME.forest && isConifer(i) ? 0.93 : b[i] === BIOME.tundra ? 0.08 : 0) }

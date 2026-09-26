@@ -15,22 +15,22 @@ describe("share links (spec: share link rebuilds the identical map in another br
 
   it("packs the settings into a short code", () => {
     const code = encodeSettings(settings);
-    expect(code).toBe("7.acm9.l.42.70.25.9.clhd.30.40");
-    expect(encodeSettings(DEFAULT_SETTINGS)).toBe("7.acm9.p.35.50.60.5.clhd.30.40");
+    expect(code).toBe("8.acm9.l.42.70.25.9.clhd.30.40");
+    expect(encodeSettings(DEFAULT_SETTINGS)).toBe("8.acm9.p.35.50.60.5.clhd.30.40");
     // Links from before the sea options read with all of them off.
     expect(decodeSettings("5.acm9.p.35.50.60.5")?.settings).toMatchObject({ compass_lines: false, shallows: false, deltas: false, waves: 0, sea_life: 0 });
     const plain = { ...DEFAULT_SETTINGS, compass_lines: false, shallows: false, deltas: false, waves: 0, sea_life: 0 };
-    expect(encodeSettings(plain)).toBe("7.acm9.p.35.50.60.5");
+    expect(encodeSettings(plain)).toBe("8.acm9.p.35.50.60.5");
     expect(decodeSettings("6.acm9.p.35.50.60.5.ch.55.0")?.settings).toMatchObject({ compass_lines: false, shallows: true, deltas: false, waves: 0.55, sea_life: 0 });
     // The border is added only when it is not the classic one, so older links are unchanged.
     const bare = { ...DEFAULT_SETTINGS, compass_lines: false, shallows: false, deltas: false, waves: 0, sea_life: 0 };
-    expect(encodeSettings({ ...bare, border: "chequered" })).toBe("7.acm9.p.35.50.60.5.k");
+    expect(encodeSettings({ ...bare, border: "chequered" })).toBe("8.acm9.p.35.50.60.5.k");
     expect(decodeSettings("6.acm9.p.35.50.60.5.o")?.settings.border).toBe("ornate");
     expect(decodeSettings("6.acm9.p.35.50.60.5")?.settings.border).toBe("classic");
     expect(decodeSettings("6.acm9.p.35.50.60.5.x")?.settings.border).toBe("classic");
     // The coast style rides in the same field: s after the border letter.
-    expect(encodeSettings({ ...bare, coast: "stipple" })).toBe("7.acm9.p.35.50.60.5.cs");
-    expect(encodeSettings({ ...bare, border: "ornate", coast: "stipple" })).toBe("7.acm9.p.35.50.60.5.os");
+    expect(encodeSettings({ ...bare, coast: "stipple" })).toBe("8.acm9.p.35.50.60.5.cs");
+    expect(encodeSettings({ ...bare, border: "ornate", coast: "stipple" })).toBe("8.acm9.p.35.50.60.5.os");
     expect(decodeSettings("6.acm9.p.35.50.60.5.ks")?.settings).toMatchObject({ border: "chequered", coast: "stipple" });
     expect(decodeSettings("6.acm9.p.35.50.60.5.k")?.settings.coast).toBe("ripples");
     expect(code.length).toBeLessThan(40);
@@ -38,7 +38,7 @@ describe("share links (spec: share link rebuilds the identical map in another br
   });
 
   it("reads a code back to exactly the same settings", () => {
-    expect(decodeSettings(encodeSettings(settings))).toEqual({ settings, version: 7 });
+    expect(decodeSettings(encodeSettings(settings))).toEqual({ settings, version: 8 });
     // A link made before version 2 keeps version 1, so it draws the map it always did.
     const noSeaExtras = { compass_lines: false, shallows: false, deltas: false, waves: 0, sea_life: 0 };
     expect(decodeSettings("1.acm9.l.42.70.25.9")?.settings).toEqual({ ...settings, ...noSeaExtras, v: 1 });

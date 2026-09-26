@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { generateHeightMap, toSeaLevel } from "../src/gen/heightmap";
 import { landAndSea } from "../src/gen/landsea";
 import { fbm, ridged, simplex } from "../src/gen/noise";
+import { BIOME, MAX_MOUNTAIN_SHARE } from "../src/gen/climate";
 import { generate } from "../src/gen/pipeline";
 import { renderRelief } from "../src/gen/render";
 import { rng, stageSeed } from "../src/gen/rng";
@@ -170,5 +171,37 @@ describe("pipeline and render", () => {
     expect(s.width).toBe(4000);
     expect(s.sea_level).toBe(0.9);
     expect(s.mountain_density).toBe(DEFAULT_SETTINGS.mountain_density);
+  });
+});
+
+describe("the Mountains setting (generator version 8)", () => {
+  const share = (seed: number, mountain_density: number, v?: number) => {
+    const m = generate({ ...small, seed, mountain_density, v });
+    let land = 0;
+    let mountain = 0;
+    m.climate.biome.forEach((b) => {
+      if (b !== BIOME.water) land++;
+      if (b === BIOME.mountain) mountain++;
+    });
+    return { share: mountain / land, drawn: m.symbols.filter((s) => s.role === "mountain").length };
+  };
+
+  it("gives steadily more mountains as the setting goes up, and none at 0", () => {
+    for (const seed of [5, 77, 2024]) {
+      const steps = [0, 0.25, 0.5, 0.75, 1].map((d) => share(seed, d));
+      expect(steps[0], `seed ${seed}`).toEqual({ share: 0, drawn: 0 });
+      for (let k = 1; k < steps.length; k++) {
+        expect(steps[k].share, `seed ${seed}`).toBeGreaterThan(steps[k - 1].share);
+        expect(steps[k].drawn, `seed ${seed}`).toBeGreaterThan(steps[k - 1].drawn);
+      }
+      expect(steps[4].share).toBeCloseTo(MAX_MOUNTAIN_SHARE, 2);
+    }
+  });
+
+  it("leaves version 7 maps as they were", () => {
+    // Version 7 marked land above half the highest peak, whatever the setting.
+    const m = generate({ ...small, seed: 5, mountain_density: 0, v: 7 });
+    m.climate.biome.forEach((b, i) => expect(b === BIOME.mountain).toBe(m.climate.elevation[i] > 0.5 && b !== BIOME.water));
+    expect(m.climate.hillAt).toBe(0.3);
   });
 });

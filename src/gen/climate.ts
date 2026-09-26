@@ -23,6 +23,22 @@ export interface Climate {
   biome: Uint8Array; // index into BIOMES
   elevation: Float32Array; // 0 at the shore to 1 at the highest peak (land only)
   baseTemperature: number; // this map's overall climate
+  hillAt: number; // elevation above which ground that is not mountain has hills
+}
+
+// The share of the land that is mountain at the top of the Mountains setting (version 8).
+export const MAX_MOUNTAIN_SHARE = 0.3;
+// The share of the land with hills, just below the mountains (version 8).
+export const HILL_SHARE = 0.15;
+
+// The elevation above which lies `share` of the land (Infinity for none).
+function highestShare(elevation: Float32Array, water: Uint8Array, share: number): number {
+  if (share <= 0) return Infinity;
+  const land: number[] = [];
+  for (let i = 0; i < elevation.length; i++) if (!water[i]) land.push(elevation[i]);
+  if (!land.length) return Infinity;
+  land.sort((a, b) => b - a);
+  return land[Math.min(land.length - 1, Math.floor(share * land.length))];
 }
 
 export function climate(hy: Hydrology, seaLevel: number, s: MapSettings): Climate {
@@ -40,6 +56,16 @@ export function climate(hy: Hydrology, seaLevel: number, s: MapSettings): Climat
   for (let i = 0; i < n; i++) if (!water[i]) top = Math.max(top, heights[i]);
   const elevation = new Float32Array(n);
   for (let i = 0; i < n; i++) elevation[i] = water[i] ? 0 : Math.max(0, (heights[i] - seaLevel) / (top - seaLevel || 1));
+
+  // Which ground is mountainous. Up to version 7, land above half the highest peak; but the
+  // Mountains setting also raises the peaks, which lowers everything else against them, so
+  // the setting worked against itself. From version 8 the setting is the share of the land
+  // that is mountain (none at 0, up to 30% at 1): the highest ground,
+  // as Sea level is the share of the map under water.
+  const mountainAt = s.v >= 8 ? highestShare(elevation, water, MAX_MOUNTAIN_SHARE * s.mountain_density) : 0.5;
+  // Hills: up to version 7, land above 0.3; with no mountains that left most high ground a
+  // sea of hills. From version 8, a band of the next HILL_SHARE of the land below the mountains.
+  const hillAt = s.v >= 8 ? highestShare(elevation, water, MAX_MOUNTAIN_SHARE * s.mountain_density + HILL_SHARE) : 0.3;
 
   const wetness = distanceToWater(hy);
   const temperature = new Float32Array(n);
@@ -64,7 +90,7 @@ export function climate(hy: Hydrology, seaLevel: number, s: MapSettings): Climat
       const e = elevation[i];
       const tt = temperature[i];
       const mm = moisture[i];
-      if (e > 0.5) biome[i] = BIOME.mountain;
+      if (e > mountainAt) biome[i] = BIOME.mountain;
       else if (tt < 0.22) biome[i] = BIOME.tundra;
       else if (tt > 0.66 && mm < 0.42) biome[i] = BIOME.desert;
       else if (e < 0.08 && wetness[i] > 0.7 && mm > 0.6) biome[i] = BIOME.marsh;
@@ -72,7 +98,7 @@ export function climate(hy: Hydrology, seaLevel: number, s: MapSettings): Climat
       else biome[i] = BIOME.grassland;
     }
   }
-  return { cols, rows, temperature, moisture, biome, elevation, baseTemperature };
+  return { cols, rows, temperature, moisture, biome, elevation, baseTemperature, hillAt };
 }
 
 // How close each land cell is to fresh or salt water: 1 at the water's edge, fading to 0
