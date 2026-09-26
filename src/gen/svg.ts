@@ -650,8 +650,8 @@ function hash01(n: number): number {
   return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
 }
 
-// Compass lines, as on old sea charts: 32 lines from the compass rose, and 16 from each other
-// wind rose, running out across the whole sea (the land is drawn over them).
+// Compass lines, as on old sea charts: 32 lines from the compass rose (and 16 from any other
+// wind rose passed in), running out across the whole sea (the land is drawn over them).
 function compassLines(W: number, H: number, px: number, roses: [number, number][]): string {
   const centres = roses.length ? roses : [[W / 2, H / 2] as [number, number]];
   const d: string[] = [];

@@ -210,11 +210,11 @@ export function svgFor(map: EditedMap, fontCss?: string, onScreen = false): stri
 }
 
 // The sea's drawing options. Compass lines radiate from where the compass rose was first
-// placed (moving the rose later leaves them be), and from two fainter wind roses.
+// placed (moving the rose later leaves them be).
 function seaStyle(s: MapSettings): SeaStyle {
   const { width: W, height: H } = s;
   const rose = state.current?.labels.labels.find((l) => l.kind === "compass");
-  const roses: [number, number][] = [rose ? [rose.x, rose.y] : [W * 0.5, H * 0.5], [W * 0.22, H * 0.72], [W * 0.8, H * 0.35]];
+  const roses: [number, number][] = [rose ? [rose.x, rose.y] : [W * 0.5, H * 0.5]];
   return { waves: s.waves, compassLines: s.compass_lines, shallows: s.shallows, deltas: s.deltas, roses };
 }
 
