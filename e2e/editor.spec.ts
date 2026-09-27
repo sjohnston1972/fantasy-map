@@ -82,9 +82,9 @@ const picked = (page: Page) => page.locator("#map .selected").evaluateAll((els) 
 test.describe("everywhere", () => {
   test("draws the same map in every browser (share links rebuild it exactly)", async ({ page }) => {
     await open(page);
-    await expect(page.locator("#caption")).toContainText("Map check pe41gf");
+    await expect(page.locator("#caption")).toContainText("Map check 5d2130");
     await open(page, "/?map=1.acm9.p.35.50.60.5");
-    await expect(page.locator("#caption")).toContainText("Map check 46mhsd");
+    await expect(page.locator("#caption")).toContainText("Map check 20s009");
   });
 
   test("keeps the map its own shape whatever the hint says", async ({ page }) => {
@@ -408,14 +408,14 @@ test.describe("editing with a mouse", () => {
     const map = (await page.locator("#map").boundingBox())!;
     await page.mouse.click(map.x + map.width * 0.5, map.y + map.height * 0.45);
     const town = page.locator('#map [data-key^="add:"]');
-    await expect(town.locator("text")).toHaveCount(1);
-    const name = await town.locator("text").textContent();
+    await expect(town.locator("text:not([aria-hidden])")).toHaveCount(1);
+    const name = await town.locator("text:not([aria-hidden])").textContent();
     expect(name!.length).toBeGreaterThan(2);
     await page.locator("#pal-done").click();
     await expect(page.locator("#label-text")).toHaveValue(name!);
     await page.locator("#label-text").fill("Dragonford");
     await page.locator("#label-text").press("Enter");
-    await expect(town.locator("text")).toHaveText("Dragonford");
+    await expect(town.locator("text:not([aria-hidden])")).toHaveText("Dragonford");
   });
 
   test("the border choice restyles the frame without making a new map", async ({ page }) => {

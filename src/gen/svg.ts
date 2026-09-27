@@ -168,7 +168,17 @@ export function renderSvg(m: SvgInput): string {
   return toned(parts.join(""), m.tone);
 }
 
-const LABEL_STYLE = `font-family="'IM Fell English', Georgia, 'Times New Roman', serif" fill="${INK}" stroke="#fff" stroke-linejoin="round" paint-order="stroke"`;
+// Lettering. IM Fell English comes in one light weight, so the letters are given body with
+// a fine stroke in the ink itself (LETTER_WEIGHT of the type size), like a slightly heavier
+// nib. `halo` (a share of the type size): a paper-coloured copy drawn first, wider, so ink
+// behind the name is knocked out; it is hidden from screen readers, which read the ink copy.
+const LETTER_WEIGHT = 0.045;
+function lettering(attrs: string, body: string, size: number, halo = 0): string {
+  const back = halo ? `<text${attrs} fill="#fff" stroke="#fff" stroke-width="${(size * halo).toFixed(1)}" stroke-linejoin="round" aria-hidden="true">${body}</text>` : "";
+  return back + `<text${attrs} fill="${INK}" stroke="${INK}" stroke-width="${(size * LETTER_WEIGHT).toFixed(2)}" stroke-linejoin="round">${body}</text>`;
+}
+
+const LABEL_STYLE = `font-family="'IM Fell English', Georgia, 'Times New Roman', serif"`;
 
 // Markup for each kind of item on the map. renderSvg draws them all; renderItems redraws a
 // few after an edit. Both go through here, so a redrawn item is exactly what a full drawing
@@ -235,15 +245,16 @@ function itemDrawer(m: SvgInput, defs: InkDefs) {
       if (l.kind === "compass") return { markup: compassMarkup(l, key) };
       if (l.kind === "scale") return { markup: scaleMarkup(l, key) };
       const text = escapeXml(l.caps ? l.text.toUpperCase() : l.text);
-      const style = `font-size="${l.size.toFixed(1)}"${l.italic ? ' font-style="italic"' : ""}${l.spacing ? ` letter-spacing="${(l.spacing * l.size).toFixed(1)}"` : ""} stroke-width="${(l.size * 0.22).toFixed(1)}"`;
+      const style = ` font-size="${l.size.toFixed(1)}"${l.italic ? ' font-style="italic"' : ""}${l.spacing ? ` letter-spacing="${(l.spacing * l.size).toFixed(1)}"` : ""}`;
+      const group = (inner: string) => `<g data-key="${key}" data-label="${l.id}" data-kind="${l.kind}">${inner}</g>`;
       if (l.path) {
         const id = `rl${l.id}`;
         return {
-          markup: `<text data-key="${key}" data-label="${l.id}" data-kind="${l.kind}" ${style}><textPath href="#${id}">${text}</textPath></text>`,
+          markup: group(lettering(style, `<textPath href="#${id}">${text}</textPath>`, l.size, 0.22)),
           path: `<path id="${id}" d="M${l.path.map(([x, y]) => `${x.toFixed(1)} ${y.toFixed(1)}`).join("L")}"/>`,
         };
       }
-      return { markup: `<text data-key="${key}" data-label="${l.id}" data-kind="${l.kind}" x="${l.x.toFixed(1)}" y="${l.y.toFixed(1)}" text-anchor="${l.anchor}" ${style}>${text}</text>` };
+      return { markup: group(lettering(` x="${l.x.toFixed(1)}" y="${l.y.toFixed(1)}" text-anchor="${l.anchor}"${style}`, text, l.size, 0.22)) };
     },
   };
 }
@@ -268,7 +279,8 @@ function titleMarkup(l: Label, key: string): string {
     `<rect x="${n(f.x)}" y="${n(f.y)}" width="${n(f.w)}" height="${n(f.h)}" fill="#fff" stroke="${INK}" stroke-width="${n(s * 0.07)}"/>` +
     `<rect x="${n(f.x + inset)}" y="${n(f.y + inset)}" width="${n(f.w - 2 * inset)}" height="${n(f.h - 2 * inset)}" fill="none" stroke="${INK}" stroke-width="${(s * 0.025).toFixed(2)}"/>` +
     `<path d="${diamonds}" fill="${INK}" stroke="none"/>` +
-    `<text x="${n(l.x)}" y="${n(l.y)}" text-anchor="middle" font-family="'IM Fell English SC', 'IM Fell English', Georgia, serif" font-size="${n(s)}" letter-spacing="${n(l.spacing * s)}" stroke="none" fill="${INK}">${escapeXml(l.caps ? l.text.toUpperCase() : l.text)}</text></g>`
+    lettering(` x="${n(l.x)}" y="${n(l.y)}" text-anchor="middle" font-family="'IM Fell English SC', 'IM Fell English', Georgia, serif" font-size="${n(s)}" letter-spacing="${n(l.spacing * s)}"`, escapeXml(l.caps ? l.text.toUpperCase() : l.text), s) +
+    `</g>`
   );
 }
 
@@ -298,7 +310,8 @@ function compassMarkup(l: Label, key: string): string {
     `<circle cx="${n(cx)}" cy="${n(cy)}" r="${n(R * 0.72)}" fill="#fff" stroke="${INK}" stroke-width="${(R * 0.03).toFixed(2)}"/>` +
     `<circle cx="${n(cx)}" cy="${n(cy)}" r="${n(R * 0.62)}" fill="none" stroke="${INK}" stroke-width="${(R * 0.012).toFixed(2)}"/>` +
     parts.join("") +
-    `<text x="${n(cx)}" y="${n(cy - R * 1.05)}" text-anchor="middle" font-family="'IM Fell English SC', 'IM Fell English', Georgia, serif" font-size="${n(R * 0.34)}" stroke="none" fill="${INK}">N</text></g>`
+    lettering(` x="${n(cx)}" y="${n(cy - R * 1.05)}" text-anchor="middle" font-family="'IM Fell English SC', 'IM Fell English', Georgia, serif" font-size="${n(R * 0.34)}"`, "N", R * 0.34) +
+    `</g>`
   );
 }
 
@@ -317,7 +330,7 @@ export function addedNameLayout(s: Pick<PlacedSymbol, "role" | "x" | "y" | "w" |
 function addedName(s: PlacedSymbol): string {
   const l = addedNameLayout(s);
   const text = escapeXml(l.caps ? s.name!.toUpperCase() : s.name!);
-  return `<text x="${l.x.toFixed(1)}" y="${l.y.toFixed(1)}" font-family="'IM Fell English', Georgia, serif" font-size="${l.size.toFixed(1)}"${l.italic ? ' font-style="italic"' : ""}${l.spacing ? ` letter-spacing="${(l.spacing * l.size).toFixed(1)}"` : ""} fill="${INK}" stroke="#fff" stroke-width="${(l.size * 0.22).toFixed(1)}" stroke-linejoin="round" paint-order="stroke">${text}</text>`;
+  return lettering(` x="${l.x.toFixed(1)}" y="${l.y.toFixed(1)}" font-family="'IM Fell English', Georgia, serif" font-size="${l.size.toFixed(1)}"${l.italic ? ' font-style="italic"' : ""}${l.spacing ? ` letter-spacing="${(l.spacing * l.size).toFixed(1)}"` : ""}`, text, l.size, 0.22);
 }
 
 // A scale bar: four bands, alternately black and white, with figures above and "Miles" below.
@@ -332,14 +345,15 @@ function scaleMarkup(l: Label, key: string): string {
   for (let i = 0; i < 4; i++) bands.push(`<rect x="${n(x0 + (i * span) / 4)}" y="${n(l.y - h)}" width="${n(span / 4)}" height="${n(h)}" fill="${i % 2 ? "#fff" : INK}" stroke="${INK}" stroke-width="${(s * 0.06).toFixed(2)}"/>`);
   const figure = (f: number) => {
     const v = miles * f;
-    return `<text x="${n(x0 + span * f)}" y="${n(l.y - h - s * 0.3)}" text-anchor="middle" font-size="${n(s * 0.85)}" stroke-width="${n(s * 0.18)}">${Number.isInteger(v) ? v : v.toFixed(1)}</text>`;
+    return lettering(` x="${n(x0 + span * f)}" y="${n(l.y - h - s * 0.3)}" text-anchor="middle" font-size="${n(s * 0.85)}"`, String(Number.isInteger(v) ? v : v.toFixed(1)), s * 0.85, 0.21);
   };
   return (
     `<g data-key="${key}" data-label="${l.id}" data-kind="scale">` +
     `<rect x="${n(x0 - s * 0.6)}" y="${n(l.y - s * 1.5)}" width="${n(span + s * 1.2)}" height="${n(s * 2.9)}" fill="#fff" stroke="none" opacity="0.85"/>` +
     bands.join("") +
     figure(0) + figure(0.5) + figure(1) +
-    `<text x="${n(l.x)}" y="${n(l.y + s * 1.05)}" text-anchor="middle" font-size="${n(s)}" font-style="italic" stroke-width="${n(s * 0.2)}">${escapeXml(l.text)}</text></g>`
+    lettering(` x="${n(l.x)}" y="${n(l.y + s * 1.05)}" text-anchor="middle" font-size="${n(s)}" font-style="italic"`, escapeXml(l.text), s, 0.2) +
+    `</g>`
   );
 }
 

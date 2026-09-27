@@ -290,3 +290,21 @@ describe("map tones (paper and ink colours)", () => {
     });
   }
 });
+
+describe("lettering weight", () => {
+  const m = maps[0];
+  const svg = renderSvg({ width: m.settings.width, height: m.settings.height, water: m.water, symbols: m.symbols, towns: m.towns, labels: m.labels });
+
+  it("gives every name a paper halo behind and an ink stroke on its letters", () => {
+    const names = m.labels.labels.filter((l) => !["title", "compass", "scale"].includes(l.kind));
+    expect(names.length).toBeGreaterThan(10);
+    for (const l of names) {
+      const group = svg.match(new RegExp(`<g data-key="label:${l.id}"[^>]*>(.*?)</g>`))![1];
+      const texts = group.match(/<text [^>]*>/g)!;
+      expect(texts, l.text).toHaveLength(2);
+      expect(texts[0]).toContain('aria-hidden="true"'); // the halo, hidden from screen readers
+      expect(texts[0]).toContain('stroke="#fff"');
+      expect(texts[1]).toMatch(/stroke="#1a1714" stroke-width="[\d.]+"/); // ink weight on the letters
+    }
+  });
+});
