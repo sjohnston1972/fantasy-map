@@ -21,7 +21,7 @@
     "miniflare": "^5.20260921.0-alpha",
     "pngjs": "^7.0.0",
     "typescript": "^7.0.2",
-    "vitest": "^5.0.1",
+    "vitest": "^5.0.5",
     "wrangler": "^4.137.0"
   },
   "dependencies": {
